@@ -104,10 +104,14 @@ export function PasscodeFlow({ state, inputRef, handlers, onReset }: Props) {
   const rowY = status === "success" ? 0 : ROW_OFFSET;
 
   /* A wrong code shakes the whole group; a refused key gives it a much
-     smaller nudge. Same gesture, different conviction. */
+     smaller nudge. Same gesture, different conviction.
+     Both fire only when their counter goes *up*. Starting over zeroes them,
+     and a reset is not something to apologise for — reacting to any change
+     made "Start over" shake as though the user had got something wrong. */
   useEffect(() => {
-    if (state.failures === failures.current) return;
+    const previous = failures.current;
     failures.current = state.failures;
+    if (state.failures <= previous) return;
     if (reduced || !scope.current) return;
     animate(
       scope.current,
@@ -117,8 +121,9 @@ export function PasscodeFlow({ state, inputRef, handlers, onReset }: Props) {
   }, [state.failures, animate, reduced, scope]);
 
   useEffect(() => {
-    if (state.rejections === rejections.current) return;
+    const previous = rejections.current;
     rejections.current = state.rejections;
+    if (state.rejections <= previous) return;
     if (reduced || !scope.current) return;
     animate(
       scope.current,
