@@ -69,6 +69,17 @@ const DIGITS_CLEAR_DELAY = 0.2;
 const ROW_FADE = 0.2;
 
 /**
+ * Centre offset of the "Start over" button.
+ *
+ * At 72 its top sat 9px inside the cells' bottom edge, so it clipped the
+ * passcode as that came back. 104 puts its top level with the caption slot —
+ * both secondary elements start the same 23px below the cells — which clears
+ * the group and lands on an alignment that already exists rather than an
+ * arbitrary nudge.
+ */
+const RESET_BUTTON_OFFSET = 104;
+
+/**
  * The ring sits on the same box as the cell it highlights, so on the two end
  * cells its outer corners have to pick up the group's 16px radius — otherwise
  * a 4px corner cuts across the rounded edge behind it. Returned as the four
@@ -423,14 +434,17 @@ export function PasscodeFlow({ state, inputRef, handlers, onReset }: Props) {
             className="ring-focus"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            // Its own transition, or the offer-it-late delay below applies on
+            // the way out too and the button hangs around for a second over
+            // the cells coming back.
+            exit={{ opacity: 0, transition: { duration: 0.12, delay: 0 } }}
             transition={{ delay: reduced ? 0.2 : 1.1, duration: 0.3 }}
             style={{
               position: "absolute",
               left: "50%",
               top: "50%",
               translate: "-50% -50%",
-              transform: "translateY(72px)",
+              transform: `translateY(${RESET_BUTTON_OFFSET}px)`,
               padding: "6px 12px",
               borderRadius: 8,
               border: "1px solid var(--border)",
