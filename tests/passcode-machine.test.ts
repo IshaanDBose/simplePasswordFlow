@@ -149,6 +149,28 @@ test("paste replaces the buffer and keeps only digits", () => {
   assert.equal(state.rejections, 0, "stripping junk is silent");
 });
 
+test("starting over winds the feedback counters back down", () => {
+  // The shake and the wiggle are driven off `failures` and `rejections`, so
+  // whoever watches them has to react to an *increase* only. RESET drives
+  // both to zero, which once made "Start over" shake as though the user had
+  // got something wrong.
+  const shaken = run([
+    ...type("1235"),
+    { type: "SUBMIT" },
+    { type: "FAIL" },
+    { type: "REJECT", reason: "Numbers only" },
+  ]);
+  assert.equal(shaken.failures, 1);
+  assert.equal(shaken.rejections, 1);
+
+  const fresh = reducer(shaken, { type: "RESET" });
+  assert.ok(fresh.failures < shaken.failures, "failures must drop on reset");
+  assert.ok(fresh.rejections < shaken.rejections, "rejections must drop on reset");
+  assert.equal(fresh.attempts, 0);
+  assert.equal(fresh.code, "");
+  assert.equal(fresh.status, "idle");
+});
+
 test("a scenario freeze survives its own scripted events", () => {
   // holdAt must not be cleared by the events the scenario itself dispatches,
   // or the machine races past the state being demonstrated.

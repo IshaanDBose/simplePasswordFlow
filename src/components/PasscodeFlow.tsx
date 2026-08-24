@@ -55,6 +55,31 @@ const CELLS_EXIT_DELAY = 0.16;
 const ROW_DESCENT_DELAY = 0.34;
 
 /**
+ * Coming back the other way — success to empty — the group has to wait for
+ * the old digits to leave before it fades in, or it fades up around them and
+ * the finished code flashes on screen on its way out. Comfortably longer than
+ * a digit's 0.16s exit.
+ */
+const DIGITS_CLEAR_DELAY = 0.2;
+
+/**
+ * Hiding the status row repositions it for next time. That has to happen
+ * after it has faded, otherwise it flies 100px up the screen on its way out.
+ */
+const ROW_FADE = 0.2;
+
+/**
+ * Centre offset of the "Start over" button.
+ *
+ * At 72 its top sat 9px inside the cells' bottom edge, so it clipped the
+ * passcode as that came back. 104 puts its top level with the caption slot —
+ * both secondary elements start the same 23px below the cells — which clears
+ * the group and lands on an alignment that already exists rather than an
+ * arbitrary nudge.
+ */
+const RESET_BUTTON_OFFSET = 104;
+
+/**
  * The ring sits on the same box as the cell it highlights, so on the two end
  * cells its outer corners have to pick up the group's 16px radius — otherwise
  * a 4px corner cuts across the rounded edge behind it. Returned as the four
@@ -104,10 +129,14 @@ export function PasscodeFlow({ state, inputRef, handlers, onReset }: Props) {
   const rowY = status === "success" ? 0 : ROW_OFFSET;
 
   /* A wrong code shakes the whole group; a refused key gives it a much
-     smaller nudge. Same gesture, different conviction. */
+     smaller nudge. Same gesture, different conviction.
+     Both fire only when their counter goes *up*. Starting over zeroes them,
+     and a reset is not something to apologise for — reacting to any change
+     made "Start over" shake as though the user had got something wrong. */
   useEffect(() => {
-    if (state.failures === failures.current) return;
+    const previous = failures.current;
     failures.current = state.failures;
+    if (state.failures <= previous) return;
     if (reduced || !scope.current) return;
     animate(
       scope.current,
@@ -117,8 +146,9 @@ export function PasscodeFlow({ state, inputRef, handlers, onReset }: Props) {
   }, [state.failures, animate, reduced, scope]);
 
   useEffect(() => {
-    if (state.rejections === rejections.current) return;
+    const previous = rejections.current;
     rejections.current = state.rejections;
+    if (state.rejections <= previous) return;
     if (reduced || !scope.current) return;
     animate(
       scope.current,
@@ -185,13 +215,18 @@ export function PasscodeFlow({ state, inputRef, handlers, onReset }: Props) {
           reduced
             ? { duration: 0.15 }
             : {
-                opacity: { duration: 0.2 },
+                opacity: { duration: ROW_FADE },
                 scale: SPRING,
-                // Only the descent waits; the row is already on screen from
-                // verifying, so nothing else is held up by this.
                 y: {
                   ...SPRING,
-                  delay: status === "success" ? ROW_DESCENT_DELAY : 0,
+                  // Descending into the centre waits for the cells to clear.
+                  // Leaving waits for the fade, so the row dissolves where it
+                  // stands instead of streaking back up to its start position.
+                  delay: !rowVisible
+                    ? ROW_FADE
+                    : status === "success"
+                      ? ROW_DESCENT_DELAY
+                      : 0,
                 },
               }
         }
@@ -257,8 +292,14 @@ export function PasscodeFlow({ state, inputRef, handlers, onReset }: Props) {
         transition={{
           duration: reduced ? 0.15 : 0.22,
           ease: "easeOut",
-          // Long enough for the green acknowledgement to register first.
-          delay: showCells || reduced ? 0 : CELLS_EXIT_DELAY,
+          delay: reduced
+            ? 0
+            : showCells
+              ? // Fading back in: hold until the old digits have gone, so the
+                // finished code does not flash as the group reappears.
+                DIGITS_CLEAR_DELAY
+              : // Fading out: long enough for the green acknowledgement first.
+                CELLS_EXIT_DELAY,
         }}
         aria-hidden={!showCells}
       >
@@ -393,14 +434,17 @@ export function PasscodeFlow({ state, inputRef, handlers, onReset }: Props) {
             className="ring-focus"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            // Its own transition, or the offer-it-late delay below applies on
+            // the way out too and the button hangs around for a second over
+            // the cells coming back.
+            exit={{ opacity: 0, transition: { duration: 0.12, delay: 0 } }}
             transition={{ delay: reduced ? 0.2 : 1.1, duration: 0.3 }}
             style={{
               position: "absolute",
               left: "50%",
               top: "50%",
               translate: "-50% -50%",
-              transform: "translateY(72px)",
+              transform: `translateY(${RESET_BUTTON_OFFSET}px)`,
               padding: "6px 12px",
               borderRadius: 8,
               border: "1px solid var(--border)",

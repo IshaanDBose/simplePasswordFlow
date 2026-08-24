@@ -195,7 +195,13 @@ export function usePasscode() {
     play,
     playingId,
     focusField,
-    reset: () => interact({ type: "RESET" }),
+    /* Clicking "Start over" leaves focus on the button, which would hand back
+       an empty field with no ring and no caret. The user just asked to go
+       again, so put them back in it. */
+    reset: () => {
+      interact({ type: "RESET" });
+      inputRef.current?.focus();
+    },
     editable: isEditable(state.status),
     codeLength: CODE_LENGTH,
   };
