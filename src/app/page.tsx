@@ -4,13 +4,25 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { PasscodeFlow } from "@/components/PasscodeFlow";
 import { StateSidebar } from "@/components/StateSidebar";
 import { usePasscode } from "@/hooks/usePasscode";
+import { MOBILE_QUERY, useMediaQuery } from "@/hooks/useMediaQuery";
 import { SCENARIOS, type Scenario } from "@/lib/scenarios";
 
 export default function Home() {
   const { state, inputRef, handlers, play, playingId, focusField, reset } =
     usePasscode();
+  const isMobile = useMediaQuery(MOBILE_QUERY);
   const [collapsed, setCollapsed] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  /* On a phone the panel would leave nothing for the stage, so it starts
+     closed and opens over the top. Crossing the breakpoint either way resets
+     it to the sensible default for that size — adjusted during render rather
+     than in an effect, so there is no extra pass with the wrong layout. */
+  const [wasMobile, setWasMobile] = useState(isMobile);
+  if (wasMobile !== isMobile) {
+    setWasMobile(isMobile);
+    setCollapsed(isMobile);
+  }
 
   /*
    * The highlighted panel item follows the machine, not the click. Selecting a
@@ -36,8 +48,10 @@ export default function Home() {
     (scenario: Scenario) => {
       setSelectedId(scenario.id);
       play(scenario);
+      // The panel is covering the thing it just triggered — get out of the way.
+      if (isMobile) setCollapsed(true);
     },
-    [play],
+    [play, isMobile],
   );
 
   useEffect(() => {
@@ -60,6 +74,7 @@ export default function Home() {
         onSelect={onSelect}
         collapsed={collapsed}
         onToggle={() => setCollapsed((c) => !c)}
+        overlay={isMobile}
       />
 
       <main

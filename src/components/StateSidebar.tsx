@@ -20,6 +20,8 @@ interface Props {
   onSelect: (scenario: Scenario) => void;
   collapsed: boolean;
   onToggle: () => void;
+  /** On narrow screens the panel floats over the stage instead of beside it. */
+  overlay: boolean;
 }
 
 const LABEL_STYLE: React.CSSProperties = {
@@ -39,6 +41,7 @@ export function StateSidebar({
   onSelect,
   collapsed,
   onToggle,
+  overlay,
 }: Props) {
   const reduced = useReducedMotion() ?? false;
 
@@ -49,6 +52,7 @@ export function StateSidebar({
         onClick={onToggle}
         className="ring-focus"
         aria-label="Show state panel"
+        aria-expanded={false}
         style={{
           position: "fixed",
           left: 16,
@@ -71,8 +75,15 @@ export function StateSidebar({
     );
   }
 
-  return (
-    <aside
+  const panel = (
+    <motion.aside
+      initial={overlay ? { x: reduced ? 0 : -268, opacity: reduced ? 0 : 1 } : false}
+      animate={{ x: 0, opacity: 1 }}
+      transition={
+        reduced
+          ? { duration: 0.12 }
+          : { type: "spring", stiffness: 520, damping: 44 }
+      }
       style={{
         width: 268,
         flexShrink: 0,
@@ -84,6 +95,16 @@ export function StateSidebar({
         display: "flex",
         flexDirection: "column",
         gap: 16,
+        ...(overlay
+          ? {
+              position: "fixed" as const,
+              left: 0,
+              top: 0,
+              height: "100dvh",
+              zIndex: 30,
+              boxShadow: "0 0 40px rgba(0,0,0,0.10)",
+            }
+          : null),
       }}
     >
       <header
@@ -299,7 +320,28 @@ export function StateSidebar({
       </section>
 
       <LiveReadout state={state} />
-    </aside>
+    </motion.aside>
+  );
+
+  if (!overlay) return panel;
+
+  return (
+    <>
+      <motion.div
+        onClick={onToggle}
+        aria-hidden="true"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: reduced ? 0 : 0.18 }}
+        style={{
+          position: "fixed",
+          inset: 0,
+          zIndex: 25,
+          background: "rgba(20,20,20,0.18)",
+        }}
+      />
+      {panel}
+    </>
   );
 }
 
