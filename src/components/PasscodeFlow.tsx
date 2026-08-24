@@ -55,6 +55,20 @@ const CELLS_EXIT_DELAY = 0.16;
 const ROW_DESCENT_DELAY = 0.34;
 
 /**
+ * Coming back the other way — success to empty — the group has to wait for
+ * the old digits to leave before it fades in, or it fades up around them and
+ * the finished code flashes on screen on its way out. Comfortably longer than
+ * a digit's 0.16s exit.
+ */
+const DIGITS_CLEAR_DELAY = 0.2;
+
+/**
+ * Hiding the status row repositions it for next time. That has to happen
+ * after it has faded, otherwise it flies 100px up the screen on its way out.
+ */
+const ROW_FADE = 0.2;
+
+/**
  * The ring sits on the same box as the cell it highlights, so on the two end
  * cells its outer corners have to pick up the group's 16px radius — otherwise
  * a 4px corner cuts across the rounded edge behind it. Returned as the four
@@ -190,13 +204,18 @@ export function PasscodeFlow({ state, inputRef, handlers, onReset }: Props) {
           reduced
             ? { duration: 0.15 }
             : {
-                opacity: { duration: 0.2 },
+                opacity: { duration: ROW_FADE },
                 scale: SPRING,
-                // Only the descent waits; the row is already on screen from
-                // verifying, so nothing else is held up by this.
                 y: {
                   ...SPRING,
-                  delay: status === "success" ? ROW_DESCENT_DELAY : 0,
+                  // Descending into the centre waits for the cells to clear.
+                  // Leaving waits for the fade, so the row dissolves where it
+                  // stands instead of streaking back up to its start position.
+                  delay: !rowVisible
+                    ? ROW_FADE
+                    : status === "success"
+                      ? ROW_DESCENT_DELAY
+                      : 0,
                 },
               }
         }
@@ -262,8 +281,14 @@ export function PasscodeFlow({ state, inputRef, handlers, onReset }: Props) {
         transition={{
           duration: reduced ? 0.15 : 0.22,
           ease: "easeOut",
-          // Long enough for the green acknowledgement to register first.
-          delay: showCells || reduced ? 0 : CELLS_EXIT_DELAY,
+          delay: reduced
+            ? 0
+            : showCells
+              ? // Fading back in: hold until the old digits have gone, so the
+                // finished code does not flash as the group reappears.
+                DIGITS_CLEAR_DELAY
+              : // Fading out: long enough for the green acknowledgement first.
+                CELLS_EXIT_DELAY,
         }}
         aria-hidden={!showCells}
       >
