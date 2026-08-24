@@ -98,6 +98,18 @@ body {
   box-shadow: 0 0 0 2px var(--background), 0 0 0 4px var(--highlight);
 }
 
+/* A button's UA background is not transparent, so the resting state has to be
+   declared before :hover can override it. */
+.sidebar-item {
+  background: transparent;
+  transition: background 160ms;
+}
+
+/* The active item already carries its own moving background. */
+.sidebar-item:hover:not([data-active="true"]) {
+  background: var(--panel-hover);
+}
+
 .sr-only {
   position: absolute;
   width: 1px;

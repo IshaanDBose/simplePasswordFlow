@@ -212,6 +212,47 @@ test("a wrong code still reads as rejected, not unavailable", () => {
   assert.equal(rejected.attempts, 1);
 });
 
+test("a passcode the user registered beats the outage trigger", () => {
+  // 0000 only means "the request fell over" for a code nobody claimed. Once it
+  // is someone's passcode it has to sign them in, or they are locked out for
+  // good — including by the hint, which would offer a code we then refused.
+  assert.equal(verifyOutcome(UNAVAILABLE_CODE, UNAVAILABLE_CODE), "success");
+  assert.equal(verifyOutcome(UNAVAILABLE_CODE, CORRECT_CODE), "unavailable");
+  assert.equal(verifyOutcome(CORRECT_CODE, UNAVAILABLE_CODE), "rejected");
+
+  const registered = run([
+    { type: "START_CREATE" },
+    ...type(UNAVAILABLE_CODE),
+    { type: "REGISTER" },
+  ]);
+  assert.equal(registered.registeredCode, UNAVAILABLE_CODE);
+  assert.equal(
+    verifyOutcome(UNAVAILABLE_CODE, registered.registeredCode),
+    "success",
+  );
+});
+
+test("re-registering the starting code makes it live again, not stale", () => {
+  const registered = run([
+    { type: "START_CREATE" },
+    ...type("9999"),
+    { type: "REGISTER" },
+    { type: "START_CREATE" },
+    ...type(CORRECT_CODE),
+    { type: "REGISTER" },
+  ]);
+  assert.equal(registered.registeredCode, CORRECT_CODE);
+  assert.equal(
+    verifyOutcome(CORRECT_CODE, registered.registeredCode),
+    "success",
+  );
+  assert.equal(
+    verifyOutcome("9999", registered.registeredCode),
+    "rejected",
+    "the abandoned code must stop working",
+  );
+});
+
 test("starting over winds the feedback counters back down", () => {
   // The shake and the wiggle are driven off `failures` and `rejections`, so
   // whoever watches them has to react to an *increase* only. RESET drives

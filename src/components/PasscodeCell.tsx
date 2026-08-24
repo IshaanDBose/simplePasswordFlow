@@ -33,9 +33,9 @@ const PALETTES: Record<Palette, { bg: string; border: string; ink: string }> = {
 };
 
 /**
- * Cells butt up against each other and share their 1px dividers, exactly as
- * the Figma group does: cell 0 carries the left edge and left radii, cell 3
- * the right edge and right radii, and each divider is drawn once.
+ * Cells butt up against each other and share their 1px dividers. Every cell
+ * draws its own right edge and only the first draws a left edge, so each
+ * divider is drawn exactly once at any CODE_LENGTH.
  */
 function edges(index: number): React.CSSProperties {
   // Widths only — borderColor is animated, so the `border` shorthand is
@@ -44,19 +44,13 @@ function edges(index: number): React.CSSProperties {
     borderStyle: "solid",
     borderTopWidth: 1,
     borderBottomWidth: 1,
-    borderLeftWidth: 0,
-    borderRightWidth: 0,
+    borderLeftWidth: index === 0 ? 1 : 0,
+    borderRightWidth: 1,
   };
   if (index === 0) {
-    style.borderLeftWidth = 1;
-    style.borderRightWidth = 1;
     style.borderRadius = `${OUTER_RADIUS}px 0 0 ${OUTER_RADIUS}px`;
   } else if (index === CODE_LENGTH - 1) {
-    style.borderLeftWidth = 1;
-    style.borderRightWidth = 1;
     style.borderRadius = `0 ${OUTER_RADIUS}px ${OUTER_RADIUS}px 0`;
-  } else if (index === 1) {
-    style.borderRightWidth = 1;
   }
   return style;
 }
@@ -110,26 +104,22 @@ export function PasscodeCell({
         delay: reduced ? 0 : index * 0.035,
       }}
     >
-      {/*
-        Exactly one child is always mounted — an empty placeholder stands in
-        for a blank cell. Conditionally mounting instead lets a key that
-        reappears mid-exit revive the outgoing element rather than replace it,
-        which strands stale digits on screen.
-      */}
+      {/* A blank cell keeps a placeholder child mounted: a key that reappears
+          mid-exit would otherwise revive the outgoing element instead of
+          replacing it, stranding stale digits on screen. */}
       <AnimatePresence initial={false}>
         <motion.span
           key={digit ?? "empty"}
-          // Transform and opacity only. A blur read nicely but left the filter
-          // track unresolved when a digit was replaced mid-entry, which kept
-          // AnimatePresence from ever unmounting the outgoing span.
+          // Transform and opacity only: a `filter` (blur) leaves its track
+          // unresolved when a digit is replaced mid-entry, so AnimatePresence
+          // never unmounts the outgoing span.
           initial={
             reduced ? { opacity: 0 } : { opacity: 0, y: 14, scale: 0.72 }
           }
           animate={reduced ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
-          // Exit runs on a fixed tween, never a spring: a spring settles by
-          // approaching rest, and if it is interrupted before it gets there
-          // AnimatePresence never hears that it is safe to unmount, leaving
-          // invisible digits behind in the DOM for screen readers to find.
+          // Exit is a fixed tween, never a spring: an interrupted spring never
+          // reaches rest, so AnimatePresence is never told it can unmount and
+          // invisible digits stay in the DOM for screen readers to find.
           exit={
             reduced
               ? { opacity: 0, transition: { duration: 0.1 } }
@@ -150,9 +140,8 @@ export function PasscodeCell({
             alignItems: "center",
             justifyContent: "center",
             // Figma sits the digits ~2px below the cell's geometric centre
-            // (baseline at y=79 in a 128px cell). Padding nudges the centred
-            // line box down to match without touching `transform`, which the
-            // enter/exit animation owns.
+            // (baseline at y=79 in a 128px cell). Padding rather than
+            // `transform`, which the enter/exit animation owns.
             paddingTop: 4,
             fontSize: 36,
             fontWeight: 500,
@@ -165,6 +154,8 @@ export function PasscodeCell({
         </motion.span>
       </AnimatePresence>
 
+      {/* The ring trails the cursor, so a ringed cell is empty only before the
+          first keystroke: this is the empty-field caret. */}
       {showCaret && digit === null && (
         <span
           className="caret"

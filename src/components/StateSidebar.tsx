@@ -121,8 +121,8 @@ export function StateSidebar({
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          {/* Square frame with the crop pulled up: the portrait is taller
-              than it is wide, so centring the box would cut off the face. */}
+          {/* The source is a portrait, taller than wide, so the square crop is
+              pulled up off centre to keep the face in frame. */}
           <Image
             src="/logo.png"
             alt=""
@@ -183,7 +183,7 @@ export function StateSidebar({
         </button>
       </header>
 
-      {SCENARIO_GROUPS.filter((g) => g !== "Interactions").map((group) => (
+      {SCENARIO_GROUPS.map((group) => (
         <section key={group}>
           <h2 style={LABEL_STYLE}>{group}</h2>
           <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
@@ -206,8 +206,9 @@ export function StateSidebar({
                       gap: 8,
                       padding: "7px 10px",
                       borderRadius: 8,
+                      // Reserves the space the active item's border takes, so
+                      // selecting a row does not shift the layout.
                       border: "1px solid transparent",
-                      background: "transparent",
                       color: isActive
                         ? "var(--text-color-1)"
                         : "var(--muted)",
@@ -338,9 +339,8 @@ export function StateSidebar({
         </dl>
       </section>
 
-      {/* The blurb lives in a fixed slot rather than under the selected row:
-          expanding inline shifts every item below it, so the state you meant
-          to click next moves out from under the cursor. */}
+      {/* Fixed slot rather than inline under the selected row: expanding inline
+          would shift every item below it out from under the cursor. */}
       <section style={{ marginTop: "auto", paddingTop: 16 }}>
         <div
           style={{
@@ -396,7 +396,7 @@ export function StateSidebar({
   );
 }
 
-/** A small inspector so the machine's actual state is never a guess. */
+/** Inspector showing the machine's current status, buffer and attempt count. */
 function LiveReadout({ state }: { state: PasscodeState }) {
   const cells = Array.from(
     { length: CODE_LENGTH },

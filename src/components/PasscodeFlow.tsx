@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { AnimatePresence, motion, useAnimate, useReducedMotion } from "motion/react";
 import { CheckSquare, CrossSquare, Spinner, WarningSquare } from "./Icons";
 import {
@@ -21,16 +21,10 @@ import {
 } from "@/lib/passcode-machine";
 
 /**
- * Vertical offset of the status row while the cells are on screen.
- *
- * Figma puts the header's centre at y=394. Its empty and filling frames put
- * the cells at y=427 (centre 491) but the submit frame at y=426 — a 1px
- * disagreement between the source frames. The cells are the anchor here:
- * pinning them to the true centre keeps them from twitching when verification
- * starts, and -97 then lands the header on 394 exactly as drawn.
- *
- * On success the cells leave and this row travels down into the centre, which
- * is where the authenticated frame draws it.
+ * Vertical offset of the status row, in px, while the cells are on screen.
+ * Figma's frames disagree by 1px on the cells' y (427 empty/filling, 426
+ * submit). The cells are pinned to the true centre so they do not twitch when
+ * verification starts, and -97 then lands the header on Figma's y=394.
  */
 const ROW_OFFSET = -97;
 
@@ -39,12 +33,8 @@ const GROUP_W = CELL_W * CODE_LENGTH;
 /** Breathing room kept around the group on small screens. */
 const MIN_GUTTER = 16;
 
-/**
- * Vertical span the stage needs: the status row sits 113px above centre and
- * the retry/reset button reaches 121px below it. Counted so that a short
- * viewport — 200% zoom halves the height as well as the width — scales the
- * stage down rather than clipping the button off the bottom.
- */
+/** Vertical span the stage needs, in px: the status row reaches 113px above
+ *  centre and the retry/reset button 121px below it. */
 const STAGE_H = 260;
 
 const SPRING = { type: "spring" as const, stiffness: 440, damping: 34, mass: 0.9 };
@@ -52,49 +42,27 @@ const SPRING = { type: "spring" as const, stiffness: 440, damping: 34, mass: 0.9
 /** Radius of the ring's own corners, in px. */
 const RING_RADIUS = 4;
 
-/**
- * Success is a handoff, not a crossfade, so the two halves take turns:
- * the cells acknowledge and clear first, and only then does the status row
- * travel down into the centre. Overlapping them put a descending row on top
- * of still-opaque cells, with the cells drifting up against it.
- *
- *   0.00  spinner swaps to the check, green ripples across the cells
- *   0.16  cells fade and settle back in place (no vertical drift to fight)
- *   0.34  row begins its descent, arriving on an empty stage
- */
+/* Success sequence, in seconds from the check appearing: the cells clear, then
+   the status row descends into the empty centre. */
 const CELLS_EXIT_DELAY = 0.16;
 const ROW_DESCENT_DELAY = 0.34;
 
-/**
- * Coming back the other way — success to empty — the group has to wait for
- * the old digits to leave before it fades in, or it fades up around them and
- * the finished code flashes on screen on its way out. Comfortably longer than
- * a digit's 0.16s exit.
- */
+/** Seconds the group waits before fading back in, so the old digits (0.16s
+ *  exit) are gone rather than flashing behind it. */
 const DIGITS_CLEAR_DELAY = 0.2;
 
-/**
- * Hiding the status row repositions it for next time. That has to happen
- * after it has faded, otherwise it flies 100px up the screen on its way out.
- */
+/** Seconds the status row takes to fade. Its y is repositioned only after
+ *  this, or it streaks 100px up the screen on its way out. */
 const ROW_FADE = 0.2;
 
-/**
- * Centre offset of the "Start over" button.
- *
- * At 72 its top sat 9px inside the cells' bottom edge, so it clipped the
- * passcode as that came back. 104 puts its top level with the caption slot —
- * both secondary elements start the same 23px below the cells — which clears
- * the group and lands on an alignment that already exists rather than an
- * arbitrary nudge.
- */
+/** Centre offset of the action button, in px. Level with the caption slot,
+ *  23px below the cells, so it clears the group as that comes back. */
 const RESET_BUTTON_OFFSET = 104;
 
 /**
- * The ring sits on the same box as the cell it highlights, so on the two end
- * cells its outer corners have to pick up the group's 16px radius — otherwise
- * a 4px corner cuts across the rounded edge behind it. Returned as the four
- * corner longhands so they can be animated individually as the ring slides.
+ * The ring shares the cell's box, so on the end cells its outer corners take
+ * the group's 16px radius or a 4px corner cuts across the rounded edge behind
+ * it. Longhands, so each corner can animate as the ring slides.
  */
 function ringCorners(index: number) {
   const first = index === 0;
@@ -110,9 +78,8 @@ function ringCorners(index: number) {
 function paletteFor(status: PasscodeState["status"]): Palette {
   if (status === "submitting") return "disabled";
   if (status === "error") return "error";
-  // `unavailable` keeps the default palette on purpose: nothing is wrong with
-  // what was typed, so marking the cells would be a lie. The status row
-  // carries the message.
+  // `unavailable` keeps the default palette: the code was never checked, so
+  // only the status row reports it.
   return "default";
 }
 
@@ -148,8 +115,8 @@ export function PasscodeFlow({
   const rejections = useRef(state.rejections);
 
   const { status, code, focused, intent } = state;
-  /* While a new passcode is being chosen the guiding line takes the status
-     row's place, and the subtext takes the caption's. */
+  // While a new passcode is being chosen the guiding line reuses the status
+  // row's slot, and the subtext the caption's.
   const creating = intent === "create" && isEditable(status);
   const caption = creating ? CREATE_SUBTEXT : state.caption;
 
@@ -163,20 +130,16 @@ export function PasscodeFlow({
     status === "created";
   const rowY = status === "success" || status === "created" ? 0 : ROW_OFFSET;
 
-  /* The offer to reset a forgotten passcode, once there is a reason to think
-     it has been forgotten. It outlives the error state itself, which clears
-     after 900ms — one glimpse of a link is not an escape route. */
+  // Offered after any failed attempt, and kept past the error status, which
+  // clears itself after 900ms.
   const showForgot =
     intent === "verify" &&
     state.attempts > 0 &&
     isEditable(status) &&
     status !== "created";
 
-  /* A wrong code shakes the whole group; a refused key gives it a much
-     smaller nudge. Same gesture, different conviction.
-     Both fire only when their counter goes *up*. Starting over zeroes them,
-     and a reset is not something to apologise for — reacting to any change
-     made "Start over" shake as though the user had got something wrong. */
+  // Both shakes fire only when their counter increases: "Start over" zeroes
+  // the counters, and reacting to any change would shake on reset too.
   useEffect(() => {
     const previous = failures.current;
     failures.current = state.failures;
@@ -201,11 +164,7 @@ export function PasscodeFlow({
     );
   }, [state.rejections, animate, reduced, scope]);
 
-  /*
-   * One button slot, four jobs. Whichever way the flow has come to rest,
-   * there is exactly one thing worth offering, so they share a position
-   * rather than competing for the space under the cells.
-   */
+  // One button slot, four jobs; at most one applies at a time.
   const action: {
     key: string;
     label: string;
@@ -234,8 +193,7 @@ export function PasscodeFlow({
             label: "Start over",
             onClick: onReset,
             primary: false,
-            // An afterthought, offered a beat later so it does not crowd
-            // the moment it follows.
+            // Offered a beat after the success sequence has finished.
             delay: (r) => (r ? 0.2 : 1.1),
           }
         : showForgot
@@ -252,47 +210,34 @@ export function PasscodeFlow({
   const ring = ringIndex(code);
   const ringVisible = focused && showCells && status !== "submitting";
 
-  /* The group is a fixed 336px wide, which is wider than a small phone once
-     you allow for gutters. Scaling the whole stage keeps the proportions and
-     the -97px handoff intact; it only ever scales down, so the desktop layout
-     stays pixel-exact. */
+  // The group is a fixed 336px wide, wider than a small phone with gutters.
+  // Scaling the stage keeps the proportions and the -97px handoff intact, and
+  // only ever scales down, so the desktop layout stays pixel-exact.
   const stageRef = useRef<HTMLDivElement>(null);
 
-  /*
-   * Written straight to a CSS variable rather than held in React state: the
-   * scale is a fact about the DOM, so syncing it to the DOM needs no re-render
-   * and nothing downstream has to wait on one.
-   *
-   * Measured immediately as well as observed. A ResizeObserver only reports
-   * once it has a frame to report against, which leaves the first paint
-   * unscaled; and the panel opening changes the stage's width without the
-   * window resizing, so all three triggers earn their place.
-   */
-  useEffect(() => {
+  // Written to a CSS variable rather than React state, so nothing re-renders.
+  const applyScale = useCallback(() => {
     const el = stageRef.current;
     if (!el) return;
+    const { width, height } = el.getBoundingClientRect();
+    if (width === 0 || height === 0) return;
+    const scale = Math.min(
+      1,
+      (width - MIN_GUTTER * 2) / GROUP_W,
+      (height - MIN_GUTTER * 2) / STAGE_H,
+    );
+    el.style.setProperty("--stage-scale", String(Math.max(scale, 0.2)));
+  }, []);
 
-    const apply = () => {
-      const { width, height } = el.getBoundingClientRect();
-      if (width === 0 || height === 0) return;
-      const scale = Math.min(
-        1,
-        (width - MIN_GUTTER * 2) / GROUP_W,
-        (height - MIN_GUTTER * 2) / STAGE_H,
-      );
-      el.style.setProperty("--stage-scale", String(Math.max(scale, 0.2)));
-    };
+  // Re-measured after every render, not just on mount: collapsing the panel
+  // changes the stage's width without the window resizing, and hydration
+  // commits once at the desktop width before the mobile default applies.
+  useEffect(applyScale);
 
-    apply();
-    window.addEventListener("resize", apply);
-    const observer =
-      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(apply);
-    observer?.observe(el);
-    return () => {
-      window.removeEventListener("resize", apply);
-      observer?.disconnect();
-    };
-  });
+  useEffect(() => {
+    window.addEventListener("resize", applyScale);
+    return () => window.removeEventListener("resize", applyScale);
+  }, [applyScale]);
 
   return (
     <div
@@ -334,9 +279,8 @@ export function PasscodeFlow({
                 scale: SPRING,
                 y: {
                   ...SPRING,
-                  // Descending into the centre waits for the cells to clear.
-                  // Leaving waits for the fade, so the row dissolves where it
-                  // stands instead of streaking back up to its start position.
+                  // Descending waits for the cells to clear; leaving waits for
+                  // the fade, so the row dissolves where it stands.
                   delay: !rowVisible
                     ? ROW_FADE
                     : status === "success"
@@ -347,7 +291,7 @@ export function PasscodeFlow({
         }
         aria-hidden={!rowVisible}
       >
-        {/* No icon while choosing — a guiding line does not need a badge. */}
+        {/* No icon while choosing a new passcode. */}
         <div
           style={{
             width: creating ? 0 : 32,
@@ -398,8 +342,6 @@ export function PasscodeFlow({
               {!creating && status === "success" && "Authenticated"}
               {!creating && status === "created" && "Passcode updated"}
               {!creating && status === "error" && "Incorrect passcode"}
-              {/* Says what we know — that we don't know — instead of
-                  blaming a passcode nobody has actually checked. */}
               {!creating && status === "unavailable" && "Couldn't verify"}
             </motion.p>
           </AnimatePresence>
@@ -417,21 +359,13 @@ export function PasscodeFlow({
         initial={false}
         animate={{
           opacity: showCells ? 1 : 0,
-          // Settles back in place rather than drifting up, which used to run
-          // head-on into the status row coming down.
+          // Scale, not y: drifting up would meet the descending status row.
           scale: showCells ? 1 : 0.96,
         }}
         transition={{
           duration: reduced ? 0.15 : 0.22,
           ease: "easeOut",
-          delay: reduced
-            ? 0
-            : showCells
-              ? // Fading back in: hold until the old digits have gone, so the
-                // finished code does not flash as the group reappears.
-                DIGITS_CLEAR_DELAY
-              : // Fading out: long enough for the green acknowledgement first.
-                CELLS_EXIT_DELAY,
+          delay: reduced ? 0 : showCells ? DIGITS_CLEAR_DELAY : CELLS_EXIT_DELAY,
         }}
         aria-hidden={!showCells}
       >
@@ -459,8 +393,7 @@ export function PasscodeFlow({
             ))}
           </div>
 
-          {/* Highlight ring — one element that slides, rather than four that
-              blink on and off. */}
+          {/* Highlight ring: one element that slides between cells. */}
           <motion.div
             aria-hidden="true"
             style={{
@@ -487,8 +420,8 @@ export function PasscodeFlow({
               x: reduced ? { duration: 0 } : SPRING,
               opacity: { duration: reduced ? 0 : 0.14 },
               borderColor: { duration: 0.18 },
-              // Corners resolve a touch quicker than the slide, so the ring
-              // has squared off before it reaches a middle cell.
+              // Corners resolve quicker than the slide, so the ring has
+              // squared off before it reaches a middle cell.
               borderTopLeftRadius: { duration: reduced ? 0 : 0.18 },
               borderBottomLeftRadius: { duration: reduced ? 0 : 0.18 },
               borderTopRightRadius: { duration: reduced ? 0 : 0.18 },
@@ -496,11 +429,9 @@ export function PasscodeFlow({
             }}
           />
 
-          {/*
-            One real input drives everything above. Keeping it native buys
-            paste, key repeat on backspace, the numeric keyboard on mobile and
-            one-time-code autofill for free.
-          */}
+          {/* One real input drives the cells above: native gets paste, key
+              repeat on backspace, the mobile numeric keyboard and
+              one-time-code autofill for free. */}
           <input
             ref={inputRef}
             className="passcode-native-input"
@@ -512,9 +443,9 @@ export function PasscodeFlow({
             spellCheck={false}
             autoCorrect="off"
             aria-label={`Passcode, ${CODE_LENGTH} digits`}
-            // Deliberately not `disabled`: the machine already ignores input
-            // while verifying, and staying focusable means the ring comes
-            // straight back after a failure without another click.
+            // `readOnly`, not `disabled`: the machine already ignores input
+            // while verifying, and staying focusable means the ring comes back
+            // after a failure without another click.
             readOnly={status === "submitting"}
             style={{
               position: "absolute",
@@ -531,7 +462,7 @@ export function PasscodeFlow({
         </div>
       </motion.div>
 
-      {/* Transient caption: refusals, and the hint once someone is stuck. */}
+      {/* Transient caption: refusals, and the hint after repeated failures. */}
       <motion.div
         style={{
           position: "absolute",
@@ -557,12 +488,6 @@ export function PasscodeFlow({
         </p>
       </motion.div>
 
-      {/*
-        A way out of whichever state the flow has come to rest in. After
-        success it is an afterthought, offered a beat later so it does not
-        crowd the moment. After a failed request it is the whole point, so it
-        arrives immediately.
-      */}
       <AnimatePresence>
         {action && (
           <motion.button
@@ -572,9 +497,8 @@ export function PasscodeFlow({
             className="ring-focus"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            // Its own transition, or the offer-it-late delay below applies on
-            // the way out too and the button hangs around for a second over
-            // the cells coming back.
+            // Needs its own transition, or `action.delay` applies on the way
+            // out too and the button lingers over the returning cells.
             exit={{ opacity: 0, transition: { duration: 0.12, delay: 0 } }}
             transition={{
               delay: action.delay(reduced),
@@ -585,8 +509,7 @@ export function PasscodeFlow({
               left: "50%",
               top: "50%",
               translate: "-50% -50%",
-              // Steps down out of the caption's way when one is showing, so
-              // the hint and the action never share the same band.
+              // Steps down out of the caption's way when one is showing.
               transform: `translateY(${
                 caption ? RESET_BUTTON_OFFSET + 44 : RESET_BUTTON_OFFSET
               }px)`,
@@ -597,8 +520,6 @@ export function PasscodeFlow({
               background: "var(--background)",
               fontSize: 13,
               fontWeight: 500,
-              // The action being asked for carries full ink; the ones that
-              // are merely available stay quiet.
               color: action.primary
                 ? "var(--text-color-1)"
                 : "var(--text-color-disabled)",

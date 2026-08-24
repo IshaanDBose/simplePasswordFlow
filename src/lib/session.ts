@@ -1,18 +1,10 @@
-import { CODE_LENGTH, CORRECT_CODE, sanitize } from "./passcode-machine";
+import { CODE_LENGTH, sanitize } from "./passcode-machine";
 
 /**
- * What survives a refresh, and where.
- *
- * `sessionStorage`, not `localStorage`: this is scoped to the one tab and goes
- * away when it closes. A real passcode should not be written to disk at all —
- * a production build would keep an in-progress entry in memory and accept that
- * a refresh loses it, or hold it server-side against a short-lived token. The
- * trade is made here because losing four digits to a stray refresh is the
- * worse failure for a demo, and the "registered" passcode has to live
- * somewhere without a backend.
+ * The only thing kept across a refresh is a partial entry, in `sessionStorage`
+ * rather than `localStorage`, so it is scoped to the tab and dies with it.
  */
 const DRAFT_KEY = "passcode:draft";
-const REGISTERED_KEY = "passcode:registered";
 
 /** sessionStorage throws in private mode on some browsers, and is absent on the server. */
 function store(): Storage | null {
@@ -39,16 +31,6 @@ export function writeDraft(code: string) {
 
 export function clearDraft() {
   store()?.removeItem(DRAFT_KEY);
-}
-
-export function readRegisteredCode(): string {
-  const raw = store()?.getItem(REGISTERED_KEY);
-  const code = raw ? sanitize(raw) : "";
-  return code.length === CODE_LENGTH ? code : CORRECT_CODE;
-}
-
-export function writeRegisteredCode(code: string) {
-  store()?.setItem(REGISTERED_KEY, code);
 }
 
 /**

@@ -1,11 +1,9 @@
 "use client";
 
 /**
- * Icons exported from the Figma file, kept as their original path data.
- *
- * The spinner arrives as eight identical spokes, so rotating it would look
- * static — instead each spoke fades on a staggered loop, which is how this
- * style of spinner is meant to read.
+ * Icons exported from the Figma file, kept as their original path data. The
+ * spinner is eight identical spokes, so it fades them on a staggered loop
+ * rather than rotating (rotating identical spokes reads as static).
  */
 
 const SPINNER_PATH =
@@ -48,11 +46,6 @@ export function Spinner({ size = 32 }: { size?: number }) {
         }
         @media (prefers-reduced-motion: reduce) {
           .spinner path { animation: none; opacity: 1; }
-          .spinner { animation: spinner-breathe 1.6s ease-in-out infinite; }
-        }
-        @keyframes spinner-breathe {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.45; }
         }
       `}</style>
     </svg>
@@ -102,18 +95,12 @@ export function CheckSquare({
           from { opacity: 0; transform: scale(.4) rotate(-12deg); }
           to   { opacity: 1; transform: scale(1) rotate(0deg); }
         }
-        @media (prefers-reduced-motion: reduce) {
-          [style*="check-in"] { animation: none !important; }
-        }
       `}</style>
     </svg>
   );
 }
 
-/**
- * No cross exists in the Figma file. This reuses the exact square frame from
- * the check icon so the error state is drawn in the same hand.
- */
+/** No cross exists in the Figma file, so this reuses the check's square frame. */
 export function CrossSquare({ size = 32 }: { size?: number }) {
   return (
     <svg
@@ -136,11 +123,8 @@ export function CrossSquare({ size = 32 }: { size?: number }) {
   );
 }
 
-/**
- * Shown when the request failed rather than the code. Same square frame as the
- * other two, in a third colour, so "we could not check" is legible at a glance
- * as a different kind of answer from "that was wrong".
- */
+/** Shown when the request failed rather than the code. Not in the Figma file:
+ *  the check's square frame again, in a third colour. */
 export function WarningSquare({ size = 32 }: { size?: number }) {
   return (
     <svg
