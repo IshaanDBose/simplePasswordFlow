@@ -1,0 +1,107 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens.
+ * The names and values below are lifted directly from the Figma file
+ * (Greptile design challenge, node 0-1) so the mapping stays traceable.
+ */
+:root {
+  --background: #ffffff;
+  --fill: #fafafa;
+  --border: #e4e4e4;
+  --highlight: #107a4d;
+  --fill-disabled: #f3f2f2;
+  --border-disabled: #e4e4e4;
+  --text-color-1: #323232;
+  --text-color-disabled: #858585;
+
+  /* No error state exists in Figma — these extend the system in the same key. */
+  --error: #b42318;
+  --error-fill: #fdf5f4;
+  --error-border: #eec9c5;
+
+  /* Harness chrome (the state-machine panel, not the design under test). */
+  --panel: #fafafa;
+  --panel-hover: #f3f2f2;
+  --muted: #858585;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-fill: var(--fill);
+  --color-border-hairline: var(--border);
+  --color-highlight: var(--highlight);
+  --color-ink: var(--text-color-1);
+  --color-muted: var(--muted);
+  --font-sans: var(--font-inter);
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--background);
+  color: var(--text-color-1);
+  font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* The passcode is driven by one real input; its native caret is replaced by
+   an animated one, so hide the real thing without losing the element. */
+.passcode-native-input {
+  color: transparent;
+  caret-color: transparent;
+  text-shadow: none;
+  -webkit-text-fill-color: transparent;
+  background: transparent;
+  border: 0;
+  outline: none;
+  letter-spacing: 84px;
+}
+
+.passcode-native-input::selection {
+  background: transparent;
+}
+
+@keyframes caret-blink {
+  0%,
+  45% {
+    opacity: 1;
+  }
+  55%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.caret {
+  animation: caret-blink 1.1s steps(1, end) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .caret {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+/* Focus rings use box-shadow so they respect border radius. */
+.ring-focus:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--background), 0 0 0 4px var(--highlight);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
