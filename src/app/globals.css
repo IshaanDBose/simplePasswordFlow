@@ -20,6 +20,10 @@
   --error-fill: #fdf5f4;
   --error-border: #eec9c5;
 
+  /* A failed request is not a failed passcode, so it gets its own colour
+     rather than borrowing the one that means "you got it wrong". */
+  --warning: #b45309;
+
   /* Harness chrome (the state-machine panel, not the design under test). */
   --panel: #fafafa;
   --panel-hover: #f3f2f2;

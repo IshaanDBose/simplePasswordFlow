@@ -3,13 +3,26 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PasscodeFlow } from "@/components/PasscodeFlow";
 import { StateSidebar } from "@/components/StateSidebar";
+import { Toast } from "@/components/Toast";
 import { usePasscode } from "@/hooks/usePasscode";
 import { MOBILE_QUERY, useMediaQuery } from "@/hooks/useMediaQuery";
 import { SCENARIOS, type Scenario } from "@/lib/scenarios";
 
 export default function Home() {
-  const { state, inputRef, handlers, play, playingId, focusField, reset } =
-    usePasscode();
+  const {
+    state,
+    inputRef,
+    handlers,
+    play,
+    playingId,
+    focusField,
+    reset,
+    retry,
+    startCreate,
+    cancelCreate,
+    toast,
+    dismissToast,
+  } = usePasscode();
   const isMobile = useMediaQuery(MOBILE_QUERY);
   const [collapsed, setCollapsed] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -96,8 +109,13 @@ export default function Home() {
           inputRef={inputRef}
           handlers={handlers}
           onReset={reset}
+          onRetry={retry}
+          onStartCreate={startCreate}
+          onCancelCreate={cancelCreate}
         />
       </main>
+
+      <Toast message={toast} onDismiss={dismissToast} />
     </div>
   );
 }
