@@ -21,7 +21,13 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={`${inter.variable} h-full antialiased`}>
-      <body className="min-h-full">{children}</body>
+      {/* Password managers and similar extensions write inline styles onto
+          <body> before React hydrates, which reads as a server/client
+          mismatch. Suppressing here is one level deep — children are still
+          fully checked. */}
+      <body className="min-h-full" suppressHydrationWarning>
+        {children}
+      </body>
     </html>
   );
 }
