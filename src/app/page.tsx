@@ -27,22 +27,17 @@ export default function Home() {
   const [collapsed, setCollapsed] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  /* On a phone the panel would leave nothing for the stage, so it starts
-     closed and opens over the top. Crossing the breakpoint either way resets
-     it to the sensible default for that size — adjusted during render rather
-     than in an effect, so there is no extra pass with the wrong layout. */
+  /* Below the mobile breakpoint the panel starts closed and opens over the
+     stage. Crossing the breakpoint resets it to that size's default during
+     render, not in an effect, so there is no extra pass with the wrong layout. */
   const [wasMobile, setWasMobile] = useState(isMobile);
   if (wasMobile !== isMobile) {
     setWasMobile(isMobile);
     setCollapsed(isMobile);
   }
 
-  /*
-   * The highlighted panel item follows the machine, not the click. Selecting a
-   * scenario highlights it; typing by hand moves the highlight to whichever
-   * scenario describes the state you have arrived at. The panel reads as an
-   * inspector rather than a menu.
-   */
+  /* The highlight follows the machine's status, not the click, so typing by
+     hand moves it to whichever scenario describes the state reached. */
   const activeId = useMemo(() => {
     if (playingId) return playingId;
     if (

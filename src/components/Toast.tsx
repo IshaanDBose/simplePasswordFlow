@@ -2,12 +2,6 @@
 
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
-/**
- * A quiet line above the stage explaining something the user did not do
- * themselves — a code that arrived prefilled, or an entry restored after a
- * refresh. It is an explanation, not an alert, so it stays out of the way and
- * never blocks anything.
- */
 export interface ToastMessage {
   id: number;
   text: string;
@@ -23,7 +17,11 @@ export function Toast({
   const reduced = useReducedMotion() ?? false;
 
   return (
+    // The live region is this always-mounted wrapper, not the toast itself:
+    // assistive tech only announces changes inside a region it already knows
+    // about, so a region that mounts with its message is missed.
     <div
+      role="status"
       style={{
         position: "fixed",
         top: 20,
@@ -40,10 +38,6 @@ export function Toast({
         {message && (
           <motion.div
             key={message.id}
-            // Announced politely: it explains state the user did not create,
-            // which a screen reader user needs just as much.
-            role="status"
-            aria-live="polite"
             initial={reduced ? { opacity: 0 } : { opacity: 0, y: -8, scale: 0.97 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={

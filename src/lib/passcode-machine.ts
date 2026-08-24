@@ -1,40 +1,31 @@
 /**
  * The passcode flow as an explicit finite state machine.
  *
- * Keeping the machine as a plain reducer (rather than hiding it inside the
- * component) is what lets the left-hand panel both *drive* the flow and
- * *visualise* it: scenarios dispatch the exact same events a keystroke does.
+ * A plain reducer, so the scenario panel can drive the flow with the same
+ * events a keystroke dispatches.
  *
  *   idle ──digit──▶ filling ──4th digit──▶ complete ──320ms | Enter──▶ submitting
  *     ▲                 │                      │                          │
  *     │                 ◀──── backspace ───────┘              ┌───────────┴──────────┐
  *     │                                                    success                 error
- *     └───────────────────── clear (850ms) ◀──────────────────────────────────────────┘
+ *     └───────────────────── clear (900ms) ◀──────────────────────────────────────────┘
  */
 
 export const CODE_LENGTH = 4;
 export const CORRECT_CODE = "1234";
 export const HINT_AFTER_ATTEMPTS = 3;
 
-/**
- * Stands in for the request falling over — a 500, a dropped connection, a
- * timeout. There is no real backend here, so this code is the way to reach
- * that path by hand.
- */
+/** There is no backend; entering this code is how the failure path is reached. */
 export const UNAVAILABLE_CODE = "0000";
 
 /** What came back from the (simulated) verification request. */
 export type Outcome = "success" | "rejected" | "unavailable";
 
-/**
- * Rejected and unavailable are different answers and must not be collapsed.
- * "We checked, and it was wrong" is about the user; "we could not check" is
- * about us, and telling someone their passcode is incorrect when the server
- * fell over sends them off re-reading a code that was right all along.
- */
 export function verifyOutcome(code: string, registered: string): Outcome {
-  if (code === UNAVAILABLE_CODE) return "unavailable";
-  return code === registered ? "success" : "rejected";
+  // Order matters: 0000 is the outage trigger for every code except one the
+  // user actually registered, which would otherwise never sign in.
+  if (code === registered) return "success";
+  return code === UNAVAILABLE_CODE ? "unavailable" : "rejected";
 }
 
 /** Timings, in ms. Collected here so the whole feel can be tuned in one place. */
@@ -64,23 +55,10 @@ export type Status =
   | "created";
 
 /**
- * What the digits being typed are *for*. Kept beside the lifecycle rather than
- * folded into it: entering a code and choosing one move through the same
- * empty → filling → complete progression, and duplicating those three states
- * per intent would double the machine to say the same thing twice.
+ * What the digits being typed are for. Orthogonal to `status`, since entering
+ * a code and choosing one share the empty → filling → complete progression.
  */
 export type Intent = "verify" | "create";
-
-export const STATUS_ORDER: Status[] = [
-  "idle",
-  "filling",
-  "complete",
-  "submitting",
-  "success",
-  "error",
-  "unavailable",
-  "created",
-];
 
 export type InputKind = "key" | "paste";
 
@@ -105,12 +83,7 @@ export interface PasscodeState {
   intent: Intent;
   /** The passcode that currently opens the door. Replaced by the create flow. */
   registeredCode: string;
-  /**
-   * A quiet explanation of something the flow did on its own. Lives on the
-   * machine rather than beside it so that restoring a draft or reading a
-   * linked code stays a single dispatch, with no second source of truth to
-   * fall out of step.
-   */
+  /** Explains something the flow did on its own (restored a draft, read a link). */
   toast: { id: number; text: string } | null;
   /** Makes repeats of the same message distinguishable, so the toast replays. */
   toastSeq: number;
@@ -163,7 +136,6 @@ export type PasscodeEvent =
   | {
       type: "HYDRATE";
       code?: string;
-      registeredCode?: string;
       holdAt?: Status | null;
       toast?: string;
     }
@@ -175,12 +147,7 @@ export type PasscodeEvent =
   | { type: "HOLD_AT"; status: Status | null }
   | { type: "SEED_ATTEMPTS"; attempts: number };
 
-/**
- * `unavailable` is editable: the code is still on screen and, as far as anyone
- * knows, still right. Leaving it editable means Enter resubmits it as-is and
- * backspace corrects a digit, rather than forcing a retype for someone else's
- * outage.
- */
+/** `unavailable` is editable so Enter resubmits and backspace corrects, without a retype. */
 const EDITABLE: readonly Status[] = [
   "idle",
   "filling",
@@ -200,24 +167,16 @@ export const statusForCode = (code: string): Status => {
 };
 
 /**
- * The cell wearing the highlight ring.
- *
- * The ring trails the cursor: it sits on the digit you just typed rather than
- * on the next empty cell. That is what the Figma "filling in numbers" frame
- * shows (1-2-2 with the *third*, filled, cell ringed) and it reads as a
- * carriage that advances when the next key lands.
+ * The cell wearing the highlight ring. It trails the cursor, sitting on the
+ * digit just typed: the Figma "filling in numbers" frame rings the third
+ * (filled) cell of 1-2-2, not the next empty one.
  */
 export const ringIndex = (code: string) =>
   code.length === 0 ? 0 : Math.min(code.length - 1, CODE_LENGTH - 1);
 
-/** Where the next digit will land. */
-export const cursorIndex = (code: string) =>
-  Math.min(code.length, CODE_LENGTH - 1);
-
 /**
- * `holdAt` is only ever changed by an explicit HOLD_AT event — the hook clears
- * it the moment a real interaction arrives. Keeping it out of every other case
- * means a scenario's freeze survives the events the scenario itself dispatches.
+ * Leaves `holdAt` alone, so a scenario's freeze survives the events the
+ * scenario itself dispatches. Only HOLD_AT changes it.
  */
 function accept(
   state: PasscodeState,
@@ -245,13 +204,12 @@ export function reducer(
       return state.focused ? { ...state, focused: false } : state;
 
     case "KEY_DIGIT": {
-      // Nothing gets through while the code is in flight.
       if (state.status === "submitting") return state;
       // Typing after a verdict starts a fresh entry rather than appending.
       if (!isEditable(state.status)) {
         return accept(state, event.digit, "key");
       }
-      // Full and waiting to submit — extra digits are ignored, not punished.
+      // Full and waiting to submit: extra digits are ignored, not refused.
       if (state.code.length >= CODE_LENGTH) return state;
       return accept(state, state.code + event.digit, "key");
     }
@@ -265,8 +223,6 @@ export function reducer(
 
     case "PASTE": {
       if (state.status === "submitting") return state;
-      // Non-digits are stripped silently — no scolding for pasting from an
-      // email that carried a stray space or dash.
       return accept(state, sanitize(event.value), "paste");
     }
 
@@ -323,9 +279,8 @@ export function reducer(
     case "REGISTER": {
       if (state.intent !== "create") return state;
       if (state.code.length < CODE_LENGTH) return state;
-      /* The chosen code becomes the one that opens the door, and the flow
-         drops straight back to verifying so the next thing the user does is
-         use it. Attempts reset: the old code's failures are not this one's. */
+      // Drops back to verifying with attempts zeroed: the old code's failures
+      // are not this one's.
       return {
         ...state,
         status: "created",
@@ -347,7 +302,6 @@ export function reducer(
         ...state,
         code,
         status: statusForCode(code),
-        registeredCode: event.registeredCode ?? state.registeredCode,
         holdAt: event.holdAt === undefined ? state.holdAt : event.holdAt,
         lastInputKind: "paste",
         toast: event.toast
@@ -362,10 +316,8 @@ export function reducer(
 
     case "REQUEST_FAILED":
       if (state.status !== "submitting") return state;
-      /* No attempt is counted and no failure is recorded: the code was never
-         judged, so it must not count against a lockout or trip the hint, and
-         it must not shake as though the user got something wrong. The code
-         stays put so retrying costs nothing. */
+      // The code was never judged, so it costs no attempt, records no failure,
+      // and stays in the field for a retry.
       return { ...state, status: "unavailable", caption: null };
 
     case "FAIL": {
@@ -397,9 +349,7 @@ export function reducer(
       };
 
     case "RESET":
-      /* Preserves focus and any scenario freeze. The registered passcode
-         survives too: starting the entry over is not the same as forgetting
-         which code was chosen. */
+      // Focus, any scenario freeze, and the registered passcode survive.
       return {
         ...initialState,
         focused: state.focused,
@@ -408,10 +358,14 @@ export function reducer(
       };
 
     case "HOLD_AT":
-      return { ...state, holdAt: event.status };
+      return state.holdAt === event.status
+        ? state
+        : { ...state, holdAt: event.status };
 
     case "SEED_ATTEMPTS":
-      return { ...state, attempts: event.attempts };
+      return state.attempts === event.attempts
+        ? state
+        : { ...state, attempts: event.attempts };
 
     default:
       return state;

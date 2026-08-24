@@ -2,23 +2,18 @@
 
 import { useCallback, useEffect, useMemo, useRef, useReducer, useState } from "react";
 import {
-  CODE_LENGTH,
-  CORRECT_CODE,
   TOAST,
   verifyOutcome,
   TIMING,
   initialState,
-  isEditable,
   reducer,
   type PasscodeEvent,
 } from "@/lib/passcode-machine";
 import {
   clearDraft,
   readDraft,
-  readRegisteredCode,
   takeLinkedCode,
   writeDraft,
-  writeRegisteredCode,
 } from "@/lib/session";
 import type { Scenario } from "@/lib/scenarios";
 
@@ -34,26 +29,23 @@ export function usePasscode() {
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const hydrated = useRef(false);
 
-  /* On load, pick up whatever the last visit or the link left behind.
-     Deliberately an effect rather than a lazy reducer initialiser: this page
-     is prerendered, and reading storage during render would give the server
-     and the client different HTML. Runs once. */
+  /* An effect rather than a lazy reducer initialiser: this page is
+     prerendered, and reading storage during render would give the server and
+     the client different HTML. The ref keeps StrictMode's double-invoke from
+     re-reading (and re-stripping) the linked code. */
   useEffect(() => {
     if (hydrated.current) return;
     hydrated.current = true;
 
-    const registeredCode = readRegisteredCode();
     const linked = takeLinkedCode();
 
     if (linked) {
-      // A magic link fills the field but does not press the button: holding
-      // at `complete` suppresses auto-submit so the code can be read, and the
-      // toast explains where it came from.
+      // Holding at `complete` suppresses auto-submit, so a magic link fills
+      // the field without pressing the button.
       clearDraft();
       dispatch({
         type: "HYDRATE",
         code: linked,
-        registeredCode,
         holdAt: "complete",
         toast: TOAST.linked,
       });
@@ -64,26 +56,16 @@ export function usePasscode() {
     dispatch({
       type: "HYDRATE",
       code: draft,
-      registeredCode,
       toast: draft ? TOAST.restored : undefined,
     });
   }, []);
 
-  /* Keep the partial entry across a refresh. Only ever a partial one — see
-     writeDraft — and never the registered code alongside it. */
   useEffect(() => {
-    if (!hydrated.current) return;
     if (state.intent === "create") return; // a passcode being chosen is not a draft
     writeDraft(state.code);
   }, [state.code, state.intent]);
 
-  useEffect(() => {
-    if (state.registeredCode !== CORRECT_CODE) {
-      writeRegisteredCode(state.registeredCode);
-    }
-  }, [state.registeredCode]);
-
-  /* Toasts explain, they do not demand — so they take themselves away. */
+  /* Toasts dismiss themselves after 5.2s. */
   useEffect(() => {
     if (!state.toast) return;
     const timer = setTimeout(() => dispatch({ type: "DISMISS_TOAST" }), 5200);
@@ -107,8 +89,6 @@ export function usePasscode() {
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     if (state.status === "complete") {
-      // The same four digits mean different things depending on what they are
-      // for: commit them, or send them off to be checked.
       timer = setTimeout(
         () =>
           dispatch({
@@ -133,10 +113,7 @@ export function usePasscode() {
     } else if (state.status === "error" && state.intent === "verify") {
       timer = setTimeout(() => dispatch({ type: "CLEAR" }), TIMING.errorHold);
     }
-    /* `unavailable` deliberately has no timer. A rejection clears itself so
-       the user can try a different code; a failed request has nothing to
-       clear, and wiping their input while they decide whether to retry would
-       punish them for an outage. It waits for them. */
+    // `unavailable` has no timer: the code stays put until the user retries it.
 
     return () => {
       if (timer) clearTimeout(timer);
@@ -176,16 +153,15 @@ export function usePasscode() {
         timers.current.push(setTimeout(() => dispatch(step.event), step.at));
       });
 
-      // Once the script is done the machine's own timers take over and carry
-      // it the rest of the way (complete → submitting → success/error).
+      // Released just after the last step so the machine's own timers carry it
+      // the rest of the way (complete → submitting → success/error).
       timers.current.push(setTimeout(() => setPlayingId(null), last + 60));
     },
     [cancelScenario],
   );
 
-  /* Typing anywhere on the page focuses the field. This keeps the empty state
-     exactly as drawn (no ring) until the user actually does something, while
-     still letting a keyboard user start without hunting for the input. */
+  /* Typing a digit anywhere on the page focuses the field, so the empty state
+     can render unfocused (no ring) without stranding a keyboard user. */
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -285,15 +261,12 @@ export function usePasscode() {
     play,
     playingId,
     focusField,
-    /* Clicking "Start over" leaves focus on the button, which would hand back
-       an empty field with no ring and no caret. The user just asked to go
-       again, so put them back in it. */
+    /* Clicking these buttons moves focus to the button, so each hands it back
+       to the field. */
     reset: () => {
       interact({ type: "RESET" });
       inputRef.current?.focus();
     },
-    /* Retry resubmits whatever is already in the field — the point of keeping
-       it is that a retry costs nothing. */
     retry: () => {
       interact({ type: "SUBMIT" });
       inputRef.current?.focus();
@@ -309,7 +282,5 @@ export function usePasscode() {
     },
     toast: state.toast,
     dismissToast: () => dispatch({ type: "DISMISS_TOAST" }),
-    editable: isEditable(state.status),
-    codeLength: CODE_LENGTH,
   };
 }

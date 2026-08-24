@@ -9,7 +9,7 @@ import { UNAVAILABLE_CODE, type PasscodeEvent, type Status } from "./passcode-ma
  * status, so a state can be inspected instead of racing past.
  */
 
-export type ScenarioGroup = "States" | "Edge cases" | "Interactions";
+export type ScenarioGroup = "States" | "Edge cases";
 
 export interface ScenarioStep {
   /** Offset from the start of playback, in ms. */
@@ -272,11 +272,7 @@ export const SCENARIOS: Scenario[] = [
   },
 ];
 
-export const SCENARIO_GROUPS: ScenarioGroup[] = [
-  "States",
-  "Edge cases",
-  "Interactions",
-];
+export const SCENARIO_GROUPS: ScenarioGroup[] = ["States", "Edge cases"];
 
 export const KEY_MAP: { keys: string; does: string }[] = [
   { keys: "0 – 9", does: "Enter a digit, advance" },
@@ -285,5 +281,5 @@ export const KEY_MAP: { keys: string; does: string }[] = [
   { keys: "Enter", does: "Submit" },
   { keys: "⌘V", does: "Paste, digits only" },
   { keys: "Esc", does: "Start over" },
-  { keys: "Tab", does: "Move focus out" },
+  { keys: "⌘\\", does: "Show or hide this panel" },
 ];
