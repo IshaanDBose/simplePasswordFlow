@@ -1,6 +1,6 @@
 # Passcode
 
-A four-digit authentication code entry experience, built for the Greptile design engineering take-home.
+A four-digit authentication code entry experience, built as a design engineering take-home.
 
 The app is laid out as a **state machine explorer**. The panel on the left lists every state and edge case; clicking one drives the real component on the right into that state. The passcode itself stays fully interactive the whole time, and the panel highlight follows the machine — type by hand and the highlight moves to whichever state you have arrived at. It reads as a live inspector rather than a menu.
 

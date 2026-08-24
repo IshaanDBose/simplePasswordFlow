@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   CODE_LENGTH,
@@ -113,27 +114,51 @@ export function StateSidebar({
       <header
         style={{
           display: "flex",
-          alignItems: "flex-start",
+          alignItems: "center",
           justifyContent: "space-between",
           gap: 8,
           paddingLeft: 10,
         }}
       >
-        <div>
-          <h1
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {/* Square frame with the crop pulled up: the portrait is taller
+              than it is wide, so centring the box would cut off the face. */}
+          <Image
+            src="/logo.png"
+            alt=""
+            aria-hidden="true"
+            width={34}
+            height={34}
+            priority
             style={{
-              margin: 0,
-              fontSize: 14,
-              fontWeight: 600,
-              color: "var(--text-color-1)",
-              letterSpacing: "-0.01em",
+              width: 34,
+              height: 34,
+              flexShrink: 0,
+              borderRadius: 8,
+              border: "1px solid var(--border)",
+              objectFit: "cover",
+              objectPosition: "50% 22%",
+              background: "var(--background)",
             }}
-          >
-            Passcode
-          </h1>
-          <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--muted)" }}>
-            State machine
-          </p>
+          />
+          <div>
+            <h1
+              style={{
+                margin: 0,
+                fontSize: 14,
+                fontWeight: 600,
+                color: "var(--text-color-1)",
+                letterSpacing: "-0.01em",
+              }}
+            >
+              Passcode
+            </h1>
+            <p
+              style={{ margin: "2px 0 0", fontSize: 12, color: "var(--muted)" }}
+            >
+              State machine
+            </p>
+          </div>
         </div>
         <button
           type="button"
