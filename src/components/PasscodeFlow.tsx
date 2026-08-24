@@ -1,9 +1,15 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, useAnimate, useReducedMotion } from "motion/react";
 import { CheckSquare, CrossSquare, Spinner } from "./Icons";
-import { CELL_W, CELL_H, PasscodeCell, type Palette } from "./PasscodeCell";
+import {
+  CELL_W,
+  CELL_H,
+  OUTER_RADIUS,
+  PasscodeCell,
+  type Palette,
+} from "./PasscodeCell";
 import {
   CODE_LENGTH,
   announcement,
@@ -27,7 +33,43 @@ const ROW_OFFSET = -97;
 
 const GROUP_W = CELL_W * CODE_LENGTH;
 
+/** Breathing room kept either side of the group on narrow screens. */
+const MIN_GUTTER = 16;
+
 const SPRING = { type: "spring" as const, stiffness: 440, damping: 34, mass: 0.9 };
+
+/** Radius of the ring's own corners, in px. */
+const RING_RADIUS = 4;
+
+/**
+ * Success is a handoff, not a crossfade, so the two halves take turns:
+ * the cells acknowledge and clear first, and only then does the status row
+ * travel down into the centre. Overlapping them put a descending row on top
+ * of still-opaque cells, with the cells drifting up against it.
+ *
+ *   0.00  spinner swaps to the check, green ripples across the cells
+ *   0.16  cells fade and settle back in place (no vertical drift to fight)
+ *   0.34  row begins its descent, arriving on an empty stage
+ */
+const CELLS_EXIT_DELAY = 0.16;
+const ROW_DESCENT_DELAY = 0.34;
+
+/**
+ * The ring sits on the same box as the cell it highlights, so on the two end
+ * cells its outer corners have to pick up the group's 16px radius — otherwise
+ * a 4px corner cuts across the rounded edge behind it. Returned as the four
+ * corner longhands so they can be animated individually as the ring slides.
+ */
+function ringCorners(index: number) {
+  const first = index === 0;
+  const last = index === CODE_LENGTH - 1;
+  return {
+    borderTopLeftRadius: first ? OUTER_RADIUS : RING_RADIUS,
+    borderBottomLeftRadius: first ? OUTER_RADIUS : RING_RADIUS,
+    borderTopRightRadius: last ? OUTER_RADIUS : RING_RADIUS,
+    borderBottomRightRadius: last ? OUTER_RADIUS : RING_RADIUS,
+  };
+}
 
 function paletteFor(status: PasscodeState["status"]): Palette {
   if (status === "submitting") return "disabled";
@@ -89,8 +131,37 @@ export function PasscodeFlow({ state, inputRef, handlers, onReset }: Props) {
   const ring = ringIndex(code);
   const ringVisible = focused && showCells && status !== "submitting";
 
+  /* The group is a fixed 336px wide, which is wider than a small phone once
+     you allow for gutters. Scaling the whole stage keeps the proportions and
+     the -97px handoff intact; it only ever scales down, so the desktop layout
+     stays pixel-exact. */
+  const stageRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => {
+      const width = entry.contentRect.width;
+      setScale(Math.min(1, (width - MIN_GUTTER * 2) / GROUP_W));
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   return (
-    <div style={{ position: "relative", width: "100%", height: "100%" }}>
+    <div
+      ref={stageRef}
+      style={{ position: "relative", width: "100%", height: "100%" }}
+    >
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          transform: `scale(${scale})`,
+          transformOrigin: "center center",
+        }}
+      >
       {/* Status row — verifying / authenticated / incorrect */}
       <motion.div
         style={{
@@ -110,7 +181,20 @@ export function PasscodeFlow({ state, inputRef, handlers, onReset }: Props) {
           y: rowVisible ? rowY : rowY - 8,
           scale: rowVisible ? 1 : 0.96,
         }}
-        transition={reduced ? { duration: 0.15 } : SPRING}
+        transition={
+          reduced
+            ? { duration: 0.15 }
+            : {
+                opacity: { duration: 0.2 },
+                scale: SPRING,
+                // Only the descent waits; the row is already on screen from
+                // verifying, so nothing else is held up by this.
+                y: {
+                  ...SPRING,
+                  delay: status === "success" ? ROW_DESCENT_DELAY : 0,
+                },
+              }
+        }
         aria-hidden={!rowVisible}
       >
         <div style={{ width: 32, height: 32, position: "relative" }}>
@@ -166,14 +250,15 @@ export function PasscodeFlow({ state, inputRef, handlers, onReset }: Props) {
         initial={false}
         animate={{
           opacity: showCells ? 1 : 0,
-          scale: showCells ? 1 : 0.97,
-          y: showCells ? 0 : -6,
+          // Settles back in place rather than drifting up, which used to run
+          // head-on into the status row coming down.
+          scale: showCells ? 1 : 0.96,
         }}
         transition={{
-          duration: reduced ? 0.15 : 0.28,
+          duration: reduced ? 0.15 : 0.22,
           ease: "easeOut",
-          // Let the success wave finish before the group bows out.
-          delay: showCells || reduced ? 0 : 0.24,
+          // Long enough for the green acknowledgement to register first.
+          delay: showCells || reduced ? 0 : CELLS_EXIT_DELAY,
         }}
         aria-hidden={!showCells}
       >
@@ -212,7 +297,6 @@ export function PasscodeFlow({ state, inputRef, handlers, onReset }: Props) {
               boxSizing: "border-box",
               width: CELL_W,
               height: CELL_H,
-              borderRadius: 4,
               borderWidth: 3,
               borderStyle: "solid",
               boxShadow: "0px 4px 4px 0px rgba(0,0,0,0.25)",
@@ -224,11 +308,18 @@ export function PasscodeFlow({ state, inputRef, handlers, onReset }: Props) {
               opacity: ringVisible ? 1 : 0,
               borderColor:
                 status === "error" ? "var(--error)" : "var(--highlight)",
+              ...ringCorners(ring),
             }}
             transition={{
               x: reduced ? { duration: 0 } : SPRING,
               opacity: { duration: reduced ? 0 : 0.14 },
               borderColor: { duration: 0.18 },
+              // Corners resolve a touch quicker than the slide, so the ring
+              // has squared off before it reaches a middle cell.
+              borderTopLeftRadius: { duration: reduced ? 0 : 0.18 },
+              borderBottomLeftRadius: { duration: reduced ? 0 : 0.18 },
+              borderTopRightRadius: { duration: reduced ? 0 : 0.18 },
+              borderBottomRightRadius: { duration: reduced ? 0 : 0.18 },
             }}
           />
 
@@ -324,6 +415,7 @@ export function PasscodeFlow({ state, inputRef, handlers, onReset }: Props) {
           </motion.button>
         )}
       </AnimatePresence>
+      </div>
 
       <div className="sr-only" role="status" aria-live="polite">
         {announcement(state)}

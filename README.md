@@ -88,13 +88,19 @@ Two places where the file needed a judgement call:
 
 ## Interaction notes
 
-**The ring trails the cursor.** It rests on the digit you just typed, not on the next empty cell. That is what the Figma filling frame shows — `1 2 2` highlights the *third*, filled cell — and it reads as a carriage that advances when the next key lands. It is one element that slides between cells on a spring, rather than four that blink on and off.
+**The ring trails the cursor.** It rests on the digit you just typed, not on the next empty cell. That is what the Figma filling frame shows — `1 2 2` highlights the *third*, filled cell — and it reads as a carriage that advances when the next key lands. It is one element that slides between cells on a spring, rather than four that blink on and off. On the two end cells its outer corners pick up the group's 16px radius, so it follows the rounded edge instead of cutting a 4px corner across it.
 
 **Digits arrive and leave through the same door**, rising into the cell on a spring and dropping back out, like a mechanical counter. Pasted digits stagger left to right at 45ms so the fill reads as a fill rather than a flash.
 
 **A refused key wiggles; a wrong code shakes.** Same gesture, different conviction — a letter gets 5px over 220ms, a failed submission 12px over 420ms. Feedback, not punishment.
 
-**The cells never move.** Verification brings the status row in above them rather than pushing them down. On success they hand off: a green acknowledgement ripples across them, they dissolve, and the row travels down into the centre where the authenticated frame draws it.
+**The cells never move.** Verification brings the status row in above them rather than pushing them down.
+
+**Success is a handoff, not a crossfade.** The two halves take turns: the check swaps in immediately, a green acknowledgement ripples across the cells, they fade out in place, and only then does the row travel down into the centre where the authenticated frame draws it. Overlapping them put a descending row on top of still-opaque cells with the cells drifting up against it — two motions crossing in opposite directions. Measured on the live page, the cells reach zero opacity before the row leaves y=394.
+
+### Responsive
+
+The layout is built for the 1512×982 artboard and adapts down from there. Below 768px the panel stops sharing the screen: it starts closed behind a toggle and opens over the stage with a scrim, dismissing itself when you pick a state so it is not covering the thing it just triggered. Narrower than about 370px the whole stage scales down to keep a 16px gutter, which preserves the proportions and the 97px handoff rather than reflowing the group. It only ever scales down, so the desktop rendering stays pixel-exact.
 
 **Failure recovers itself.** The error holds for 900ms, then clears and springs the ring back to the first cell, focus intact, ready to retype without a click. After three attempts it stops being coy and offers the code — a dead end is not a delightful place to leave someone.
 
