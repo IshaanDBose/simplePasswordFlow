@@ -9,7 +9,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Passcode — Greptile design challenge",
+  title: "Passcode — a state machine explorer",
   description:
     "A four-digit authentication code entry experience, built as an explorable state machine.",
 };
