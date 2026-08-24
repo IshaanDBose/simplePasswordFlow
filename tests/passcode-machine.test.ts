@@ -154,7 +154,7 @@ test("paste replaces the buffer and keeps only digits", () => {
 
 test("a failed request is not a wrong passcode", () => {
   const submitted = run([...type(UNAVAILABLE_CODE), { type: "SUBMIT" }]);
-  assert.equal(verifyOutcome(UNAVAILABLE_CODE), "unavailable");
+  assert.equal(verifyOutcome(UNAVAILABLE_CODE, CORRECT_CODE), "unavailable");
 
   const down = reducer(submitted, { type: "REQUEST_FAILED" });
   assert.equal(down.status, "unavailable");
@@ -205,8 +205,8 @@ test("the field stays editable after a failed request", () => {
 });
 
 test("a wrong code still reads as rejected, not unavailable", () => {
-  assert.equal(verifyOutcome("9999"), "rejected");
-  assert.equal(verifyOutcome(CORRECT_CODE), "success");
+  assert.equal(verifyOutcome("9999", CORRECT_CODE), "rejected");
+  assert.equal(verifyOutcome(CORRECT_CODE, CORRECT_CODE), "success");
   const rejected = run([...type("9999"), { type: "SUBMIT" }, { type: "FAIL" }]);
   assert.equal(rejected.status, "error");
   assert.equal(rejected.attempts, 1);
@@ -232,6 +232,84 @@ test("starting over winds the feedback counters back down", () => {
   assert.equal(fresh.attempts, 0);
   assert.equal(fresh.code, "");
   assert.equal(fresh.status, "idle");
+});
+
+test("choosing a new passcode registers it and makes it the one that works", () => {
+  const forgot = run([
+    ...type("9999"),
+    { type: "SUBMIT" },
+    { type: "FAIL" },
+    { type: "START_CREATE" },
+  ]);
+  assert.equal(forgot.intent, "create");
+  assert.equal(forgot.code, "", "starts from an empty field");
+
+  const chosen = run(type("4321"), forgot);
+  assert.equal(chosen.status, "complete");
+
+  const registered = reducer(chosen, { type: "REGISTER" });
+  assert.equal(registered.status, "created");
+  assert.equal(registered.registeredCode, "4321");
+  assert.equal(registered.intent, "verify", "drops back to signing in");
+  assert.equal(registered.code, "", "so the new code can be entered");
+  assert.equal(registered.attempts, 0, "the old code's failures are not this one's");
+
+  // The new code now opens the door and the old one does not.
+  assert.equal(verifyOutcome("4321", registered.registeredCode), "success");
+  assert.equal(verifyOutcome(CORRECT_CODE, registered.registeredCode), "rejected");
+});
+
+test("a half-chosen passcode cannot be registered", () => {
+  const partial = run([{ type: "START_CREATE" }, ...type("43")]);
+  const attempted = reducer(partial, { type: "REGISTER" });
+  assert.equal(attempted.registeredCode, CORRECT_CODE, "nothing is committed");
+  assert.equal(attempted.status, partial.status);
+});
+
+test("cancelling leaves the existing passcode alone", () => {
+  const cancelled = run([
+    { type: "START_CREATE" },
+    ...type("4321"),
+    { type: "CANCEL_CREATE" },
+  ]);
+  assert.equal(cancelled.intent, "verify");
+  assert.equal(cancelled.registeredCode, CORRECT_CODE, "unchanged");
+  assert.equal(cancelled.code, "");
+});
+
+test("a registered passcode survives starting over", () => {
+  const registered = run([
+    { type: "START_CREATE" },
+    ...type("4321"),
+    { type: "REGISTER" },
+  ]);
+  const afterReset = reducer(registered, { type: "RESET" });
+  assert.equal(
+    afterReset.registeredCode,
+    "4321",
+    "starting the entry over is not forgetting the passcode",
+  );
+});
+
+test("hydrating restores a draft without submitting it", () => {
+  const restored = reducer(initialState, { type: "HYDRATE", code: "12" });
+  assert.equal(restored.code, "12");
+  assert.equal(restored.status, "filling");
+
+  // A linked code arrives complete, and is held so it is not fired off before
+  // the user has seen where it came from.
+  const linked = reducer(initialState, {
+    type: "HYDRATE",
+    code: CORRECT_CODE,
+    holdAt: "complete",
+  });
+  assert.equal(linked.status, "complete");
+  assert.equal(linked.holdAt, "complete");
+});
+
+test("hydration sanitises whatever the URL or storage hands over", () => {
+  const junk = reducer(initialState, { type: "HYDRATE", code: "9a8b7c6d5" });
+  assert.equal(junk.code, "9876", "digits only, truncated to length");
 });
 
 test("a scenario freeze survives its own scripted events", () => {

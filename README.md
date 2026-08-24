@@ -98,9 +98,27 @@ Two places where the file needed a judgement call:
 
 **Success is a handoff, not a crossfade.** The two halves take turns: the check swaps in immediately, a green acknowledgement ripples across the cells, they fade out in place, and only then does the row travel down into the centre where the authenticated frame draws it. Overlapping them put a descending row on top of still-opaque cells with the cells drifting up against it — two motions crossing in opposite directions. Measured on the live page, the cells reach zero opacity before the row leaves y=394.
 
+### Forgetting the passcode
+
+After a failed attempt, **Forgot passcode?** appears under the field and stays — it outlives the error state itself, which clears after 900ms, because one glimpse of an escape route is not an escape route. It leads to the same four cells asking a different question: "Choose a new passcode", with a line of subtext and a Cancel.
+
+The chosen code is registered and becomes the one that opens the door; the old one stops working. Choosing and entering share the `idle → filling → complete` progression, so rather than duplicating those three states per purpose, the machine carries an `intent` (`verify` or `create`) alongside the lifecycle. Registering resets the attempt count — the old code's failures are not the new one's.
+
+### Surviving a refresh, and arriving by link
+
+A partial entry is kept in `sessionStorage` and restored on load with a quiet "Picked up where you left off". Only ever a *partial* one: a complete code is either in flight or already answered, and restoring it would resubmit on load.
+
+A code can also arrive in the URL (`?code=1234`), as a magic link would. It fills the cells with the same staggered animation a paste uses, and a toast says where it came from. Two deliberate choices: it does **not** auto-submit, because a code that verifies itself before the explanation can be read is not an explanation; and the `code` parameter is stripped from the address bar immediately, so a shared or bookmarked URL does not carry a passcode around with it. Other parameters are left alone.
+
+> **On persisting a passcode.** A real product should not write one to storage at all — it would keep an in-progress entry in memory and accept that a refresh loses it, or hold it server-side against a short-lived token. `sessionStorage` is the compromise here: scoped to the one tab, gone when it closes. It is called out in `src/lib/session.ts` rather than left as an implicit decision.
+
 ### Responsive
 
-The layout is built for the 1512×982 artboard and adapts down from there. Below 768px the panel stops sharing the screen: it starts closed behind a toggle and opens over the stage with a scrim, dismissing itself when you pick a state so it is not covering the thing it just triggered. Narrower than about 370px the whole stage scales down to keep a 16px gutter, which preserves the proportions and the 97px handoff rather than reflowing the group. It only ever scales down, so the desktop rendering stays pixel-exact.
+The layout is built for the 1512×982 artboard and adapts down from there. Below 768px the panel stops sharing the screen: it starts closed behind a toggle and opens over the stage with a scrim, dismissing itself when you pick a state so it is not covering the thing it just triggered.
+
+The stage scales down to hold a 16px gutter on both axes — 200% zoom halves the height as well as the width, and the height clamp is what keeps the button below the cells from being cut off. Scaling rather than reflowing preserves the proportions and the 97px handoff, and it only ever scales *down*, so the desktop rendering stays pixel-exact. Verified at 320×480 with no horizontal scrolling.
+
+The scale is written straight to a CSS variable rather than held in React state, and measured immediately as well as observed. A `ResizeObserver` only reports once it has a frame to report against, which left the first paint unscaled; and the panel opening changes the stage's width without the window resizing, so the immediate measurement, the `resize` listener and the observer each cover a case the others miss.
 
 **Failure recovers itself.** The error holds for 900ms, then clears and springs the ring back to the first cell, focus intact, ready to retype without a click. After three attempts it stops being coy and offers the code — a dead end is not a delightful place to leave someone.
 

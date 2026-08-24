@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { AnimatePresence, motion, useAnimate, useReducedMotion } from "motion/react";
 import { CheckSquare, CrossSquare, Spinner, WarningSquare } from "./Icons";
 import {
@@ -12,7 +12,10 @@ import {
 } from "./PasscodeCell";
 import {
   CODE_LENGTH,
+  CREATE_SUBTEXT,
+  CREATE_TITLE,
   announcement,
+  isEditable,
   ringIndex,
   type PasscodeState,
 } from "@/lib/passcode-machine";
@@ -33,8 +36,16 @@ const ROW_OFFSET = -97;
 
 const GROUP_W = CELL_W * CODE_LENGTH;
 
-/** Breathing room kept either side of the group on narrow screens. */
+/** Breathing room kept around the group on small screens. */
 const MIN_GUTTER = 16;
+
+/**
+ * Vertical span the stage needs: the status row sits 113px above centre and
+ * the retry/reset button reaches 121px below it. Counted so that a short
+ * viewport — 200% zoom halves the height as well as the width — scales the
+ * stage down rather than clipping the button off the bottom.
+ */
+const STAGE_H = 260;
 
 const SPRING = { type: "spring" as const, stiffness: 440, damping: 34, mass: 0.9 };
 
@@ -118,6 +129,8 @@ interface Props {
   };
   onReset: () => void;
   onRetry: () => void;
+  onStartCreate: () => void;
+  onCancelCreate: () => void;
 }
 
 export function PasscodeFlow({
@@ -126,20 +139,38 @@ export function PasscodeFlow({
   handlers,
   onReset,
   onRetry,
+  onStartCreate,
+  onCancelCreate,
 }: Props) {
   const reduced = useReducedMotion() ?? false;
   const [scope, animate] = useAnimate<HTMLDivElement>();
   const failures = useRef(state.failures);
   const rejections = useRef(state.rejections);
 
-  const { status, code, focused, caption } = state;
-  const showCells = status !== "success";
+  const { status, code, focused, intent } = state;
+  /* While a new passcode is being chosen the guiding line takes the status
+     row's place, and the subtext takes the caption's. */
+  const creating = intent === "create" && isEditable(status);
+  const caption = creating ? CREATE_SUBTEXT : state.caption;
+
+  const showCells = status !== "success" && status !== "created";
   const rowVisible =
+    creating ||
     status === "submitting" ||
     status === "success" ||
     status === "error" ||
-    status === "unavailable";
-  const rowY = status === "success" ? 0 : ROW_OFFSET;
+    status === "unavailable" ||
+    status === "created";
+  const rowY = status === "success" || status === "created" ? 0 : ROW_OFFSET;
+
+  /* The offer to reset a forgotten passcode, once there is a reason to think
+     it has been forgotten. It outlives the error state itself, which clears
+     after 900ms — one glimpse of a link is not an escape route. */
+  const showForgot =
+    intent === "verify" &&
+    state.attempts > 0 &&
+    isEditable(status) &&
+    status !== "created";
 
   /* A wrong code shakes the whole group; a refused key gives it a much
      smaller nudge. Same gesture, different conviction.
@@ -170,6 +201,53 @@ export function PasscodeFlow({
     );
   }, [state.rejections, animate, reduced, scope]);
 
+  /*
+   * One button slot, four jobs. Whichever way the flow has come to rest,
+   * there is exactly one thing worth offering, so they share a position
+   * rather than competing for the space under the cells.
+   */
+  const action: {
+    key: string;
+    label: string;
+    onClick: () => void;
+    primary: boolean;
+    delay: (reduced: boolean) => number;
+  } | null = creating
+    ? {
+        key: "cancel",
+        label: "Cancel",
+        onClick: onCancelCreate,
+        primary: false,
+        delay: () => 0.12,
+      }
+    : status === "unavailable"
+      ? {
+          key: "retry",
+          label: "Try again",
+          onClick: onRetry,
+          primary: true,
+          delay: () => 0.12,
+        }
+      : status === "success"
+        ? {
+            key: "reset",
+            label: "Start over",
+            onClick: onReset,
+            primary: false,
+            // An afterthought, offered a beat later so it does not crowd
+            // the moment it follows.
+            delay: (r) => (r ? 0.2 : 1.1),
+          }
+        : showForgot
+          ? {
+              key: "forgot",
+              label: "Forgot passcode?",
+              onClick: onStartCreate,
+              primary: false,
+              delay: () => 0.2,
+            }
+          : null;
+
   const palette = paletteFor(status);
   const ring = ringIndex(code);
   const ringVisible = focused && showCells && status !== "submitting";
@@ -179,18 +257,42 @@ export function PasscodeFlow({
      the -97px handoff intact; it only ever scales down, so the desktop layout
      stays pixel-exact. */
   const stageRef = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(1);
 
+  /*
+   * Written straight to a CSS variable rather than held in React state: the
+   * scale is a fact about the DOM, so syncing it to the DOM needs no re-render
+   * and nothing downstream has to wait on one.
+   *
+   * Measured immediately as well as observed. A ResizeObserver only reports
+   * once it has a frame to report against, which leaves the first paint
+   * unscaled; and the panel opening changes the stage's width without the
+   * window resizing, so all three triggers earn their place.
+   */
   useEffect(() => {
     const el = stageRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(([entry]) => {
-      const width = entry.contentRect.width;
-      setScale(Math.min(1, (width - MIN_GUTTER * 2) / GROUP_W));
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
+    if (!el) return;
+
+    const apply = () => {
+      const { width, height } = el.getBoundingClientRect();
+      if (width === 0 || height === 0) return;
+      const scale = Math.min(
+        1,
+        (width - MIN_GUTTER * 2) / GROUP_W,
+        (height - MIN_GUTTER * 2) / STAGE_H,
+      );
+      el.style.setProperty("--stage-scale", String(Math.max(scale, 0.2)));
+    };
+
+    apply();
+    window.addEventListener("resize", apply);
+    const observer =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(apply);
+    observer?.observe(el);
+    return () => {
+      window.removeEventListener("resize", apply);
+      observer?.disconnect();
+    };
+  });
 
   return (
     <div
@@ -201,7 +303,7 @@ export function PasscodeFlow({
         style={{
           position: "absolute",
           inset: 0,
-          transform: `scale(${scale})`,
+          transform: "scale(var(--stage-scale, 1))",
           transformOrigin: "center center",
         }}
       >
@@ -245,20 +347,31 @@ export function PasscodeFlow({
         }
         aria-hidden={!rowVisible}
       >
-        <div style={{ width: 32, height: 32, position: "relative" }}>
+        {/* No icon while choosing — a guiding line does not need a badge. */}
+        <div
+          style={{
+            width: creating ? 0 : 32,
+            height: 32,
+            position: "relative",
+            transition: "width 160ms ease-out",
+          }}
+        >
           <AnimatePresence initial={false} mode="wait">
             <motion.div
-              key={status}
+              key={creating ? "creating" : status}
               initial={{ opacity: 0, scale: 0.7 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.7 }}
               transition={{ duration: reduced ? 0.1 : 0.16 }}
               style={{ position: "absolute", inset: 0 }}
             >
-              {status === "submitting" && <Spinner />}
-              {status === "success" && <CheckSquare draw={!reduced} />}
-              {status === "error" && <CrossSquare />}
-              {status === "unavailable" && <WarningSquare />}
+              {!creating && status === "submitting" && <Spinner />}
+              {!creating &&
+                (status === "success" || status === "created") && (
+                  <CheckSquare draw={!reduced} />
+                )}
+              {!creating && status === "error" && <CrossSquare />}
+              {!creating && status === "unavailable" && <WarningSquare />}
             </motion.div>
           </AnimatePresence>
         </div>
@@ -266,7 +379,7 @@ export function PasscodeFlow({
         <div style={{ position: "relative", height: 29 }}>
           <AnimatePresence initial={false} mode="wait">
             <motion.p
-              key={status}
+              key={creating ? "creating" : status}
               initial={{ opacity: 0, y: reduced ? 0 : 4 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: reduced ? 0 : -4 }}
@@ -280,12 +393,14 @@ export function PasscodeFlow({
                 whiteSpace: "nowrap",
               }}
             >
-              {status === "submitting" && "Verifying..."}
-              {status === "success" && "Authenticated"}
-              {status === "error" && "Incorrect passcode"}
+              {creating && CREATE_TITLE}
+              {!creating && status === "submitting" && "Verifying..."}
+              {!creating && status === "success" && "Authenticated"}
+              {!creating && status === "created" && "Passcode updated"}
+              {!creating && status === "error" && "Incorrect passcode"}
               {/* Says what we know — that we don't know — instead of
                   blaming a passcode nobody has actually checked. */}
-              {status === "unavailable" && "Couldn't verify"}
+              {!creating && status === "unavailable" && "Couldn't verify"}
             </motion.p>
           </AnimatePresence>
         </div>
@@ -449,11 +564,11 @@ export function PasscodeFlow({
         arrives immediately.
       */}
       <AnimatePresence>
-        {(status === "success" || status === "unavailable") && (
+        {action && (
           <motion.button
-            key={status}
+            key={action.key}
             type="button"
-            onClick={status === "success" ? onReset : onRetry}
+            onClick={action.onClick}
             className="ring-focus"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -462,8 +577,7 @@ export function PasscodeFlow({
             // the cells coming back.
             exit={{ opacity: 0, transition: { duration: 0.12, delay: 0 } }}
             transition={{
-              delay:
-                status === "unavailable" ? 0.12 : reduced ? 0.2 : 1.1,
+              delay: action.delay(reduced),
               duration: 0.3,
             }}
             style={{
@@ -471,23 +585,27 @@ export function PasscodeFlow({
               left: "50%",
               top: "50%",
               translate: "-50% -50%",
-              transform: `translateY(${RESET_BUTTON_OFFSET}px)`,
+              // Steps down out of the caption's way when one is showing, so
+              // the hint and the action never share the same band.
+              transform: `translateY(${
+                caption ? RESET_BUTTON_OFFSET + 44 : RESET_BUTTON_OFFSET
+              }px)`,
+              transition: "transform 200ms ease-out",
               padding: "6px 12px",
               borderRadius: 8,
               border: "1px solid var(--border)",
               background: "var(--background)",
               fontSize: 13,
               fontWeight: 500,
-              // Retry is the action being asked for, so it carries full ink;
-              // starting over is optional and stays quiet.
-              color:
-                status === "unavailable"
-                  ? "var(--text-color-1)"
-                  : "var(--text-color-disabled)",
+              // The action being asked for carries full ink; the ones that
+              // are merely available stay quiet.
+              color: action.primary
+                ? "var(--text-color-1)"
+                : "var(--text-color-disabled)",
               cursor: "pointer",
             }}
           >
-            {status === "success" ? "Start over" : "Try again"}
+            {action.label}
           </motion.button>
         )}
       </AnimatePresence>

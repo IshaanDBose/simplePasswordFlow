@@ -32,9 +32,9 @@ export type Outcome = "success" | "rejected" | "unavailable";
  * about us, and telling someone their passcode is incorrect when the server
  * fell over sends them off re-reading a code that was right all along.
  */
-export function verifyOutcome(code: string): Outcome {
+export function verifyOutcome(code: string, registered: string): Outcome {
   if (code === UNAVAILABLE_CODE) return "unavailable";
-  return code === CORRECT_CODE ? "success" : "rejected";
+  return code === registered ? "success" : "rejected";
 }
 
 /** Timings, in ms. Collected here so the whole feel can be tuned in one place. */
@@ -46,6 +46,8 @@ export const TIMING = {
   verify: 1600,
   /** How long the error state holds before clearing itself for a retry. */
   errorHold: 900,
+  /** Long enough to read "Passcode updated" before the field reopens. */
+  createdHold: 1400,
 } as const;
 
 export type Status =
@@ -57,7 +59,17 @@ export type Status =
   /** The code was checked and rejected. */
   | "error"
   /** The code could not be checked at all. */
-  | "unavailable";
+  | "unavailable"
+  /** A new passcode has just been registered. */
+  | "created";
+
+/**
+ * What the digits being typed are *for*. Kept beside the lifecycle rather than
+ * folded into it: entering a code and choosing one move through the same
+ * empty → filling → complete progression, and duplicating those three states
+ * per intent would double the machine to say the same thing twice.
+ */
+export type Intent = "verify" | "create";
 
 export const STATUS_ORDER: Status[] = [
   "idle",
@@ -67,6 +79,7 @@ export const STATUS_ORDER: Status[] = [
   "success",
   "error",
   "unavailable",
+  "created",
 ];
 
 export type InputKind = "key" | "paste";
@@ -88,6 +101,19 @@ export interface PasscodeState {
   /** When set, automatic transitions pause on this status so it can be
    *  inspected. Cleared by any real interaction. */
   holdAt: Status | null;
+  /** Whether the digits being typed are being checked or being chosen. */
+  intent: Intent;
+  /** The passcode that currently opens the door. Replaced by the create flow. */
+  registeredCode: string;
+  /**
+   * A quiet explanation of something the flow did on its own. Lives on the
+   * machine rather than beside it so that restoring a draft or reading a
+   * linked code stays a single dispatch, with no second source of truth to
+   * fall out of step.
+   */
+  toast: { id: number; text: string } | null;
+  /** Makes repeats of the same message distinguishable, so the toast replays. */
+  toastSeq: number;
 }
 
 export const initialState: PasscodeState = {
@@ -100,7 +126,18 @@ export const initialState: PasscodeState = {
   caption: null,
   lastInputKind: "key",
   holdAt: null,
+  intent: "verify",
+  registeredCode: CORRECT_CODE,
+  toast: null,
+  toastSeq: 0,
 };
+
+/** Copy for the explanations the flow gives about things it did itself. */
+export const TOAST = {
+  linked: "Code filled from your sign-in link",
+  restored: "Picked up where you left off",
+  registered: "Passcode saved. Enter it to sign in.",
+} as const;
 
 export type PasscodeEvent =
   | { type: "FOCUS" }
@@ -116,6 +153,21 @@ export type PasscodeEvent =
   | { type: "FAIL" }
   /** The request itself failed — no verdict on the code. */
   | { type: "REQUEST_FAILED" }
+  /** Forgot the passcode: start choosing a new one. */
+  | { type: "START_CREATE" }
+  /** Back out of choosing, without changing anything. */
+  | { type: "CANCEL_CREATE" }
+  /** Commit the chosen passcode as the one that now opens the door. */
+  | { type: "REGISTER" }
+  /** Restore a draft entry, a linked code, or a previously chosen passcode. */
+  | {
+      type: "HYDRATE";
+      code?: string;
+      registeredCode?: string;
+      holdAt?: Status | null;
+      toast?: string;
+    }
+  | { type: "DISMISS_TOAST" }
   /** Soft reset: empties the code, keeps the attempt history. */
   | { type: "CLEAR" }
   /** Hard reset: back to a pristine machine. */
@@ -248,6 +300,66 @@ export function reducer(
       if (state.status !== "submitting") return state;
       return { ...state, status: "success", caption: null };
 
+    case "START_CREATE":
+      return {
+        ...state,
+        intent: "create",
+        status: "idle",
+        code: "",
+        caption: null,
+        lastInputKind: "key",
+      };
+
+    case "CANCEL_CREATE":
+      return {
+        ...state,
+        intent: "verify",
+        status: "idle",
+        code: "",
+        caption: null,
+        lastInputKind: "key",
+      };
+
+    case "REGISTER": {
+      if (state.intent !== "create") return state;
+      if (state.code.length < CODE_LENGTH) return state;
+      /* The chosen code becomes the one that opens the door, and the flow
+         drops straight back to verifying so the next thing the user does is
+         use it. Attempts reset: the old code's failures are not this one's. */
+      return {
+        ...state,
+        status: "created",
+        registeredCode: state.code,
+        intent: "verify",
+        code: "",
+        attempts: 0,
+        caption: null,
+        lastInputKind: "key",
+        toast: { id: state.toastSeq + 1, text: TOAST.registered },
+        toastSeq: state.toastSeq + 1,
+      };
+    }
+
+    case "HYDRATE": {
+      const code =
+        event.code === undefined ? state.code : sanitize(event.code);
+      return {
+        ...state,
+        code,
+        status: statusForCode(code),
+        registeredCode: event.registeredCode ?? state.registeredCode,
+        holdAt: event.holdAt === undefined ? state.holdAt : event.holdAt,
+        lastInputKind: "paste",
+        toast: event.toast
+          ? { id: state.toastSeq + 1, text: event.toast }
+          : state.toast,
+        toastSeq: event.toast ? state.toastSeq + 1 : state.toastSeq,
+      };
+    }
+
+    case "DISMISS_TOAST":
+      return state.toast === null ? state : { ...state, toast: null };
+
     case "REQUEST_FAILED":
       if (state.status !== "submitting") return state;
       /* No attempt is counted and no failure is recorded: the code was never
@@ -265,7 +377,9 @@ export function reducer(
         attempts,
         failures: state.failures + 1,
         caption:
-          attempts >= HINT_AFTER_ATTEMPTS ? `Hint: the code is ${CORRECT_CODE}` : null,
+          attempts >= HINT_AFTER_ATTEMPTS
+            ? `Hint: the code is ${state.registeredCode}`
+            : null,
       };
     }
 
@@ -278,13 +392,20 @@ export function reducer(
         // The hint, once earned, stays until the flow resets.
         caption:
           state.attempts >= HINT_AFTER_ATTEMPTS
-            ? `Hint: the code is ${CORRECT_CODE}`
+            ? `Hint: the code is ${state.registeredCode}`
             : null,
       };
 
     case "RESET":
-      // Preserves focus and any scenario freeze; everything else goes back.
-      return { ...initialState, focused: state.focused, holdAt: state.holdAt };
+      /* Preserves focus and any scenario freeze. The registered passcode
+         survives too: starting the entry over is not the same as forgetting
+         which code was chosen. */
+      return {
+        ...initialState,
+        focused: state.focused,
+        holdAt: state.holdAt,
+        registeredCode: state.registeredCode,
+      };
 
     case "HOLD_AT":
       return { ...state, holdAt: event.status };
@@ -306,10 +427,20 @@ export const STATUS_LABEL: Record<Status, string> = {
   success: "success",
   error: "error",
   unavailable: "unavailable",
+  created: "created",
 };
+
+/** Guiding line shown while a new passcode is being chosen. */
+export const CREATE_TITLE = "Choose a new passcode";
+export const CREATE_SUBTEXT = "Pick 4 digits. You'll use these to sign in.";
 
 /** Announcement copy for the aria-live region. */
 export function announcement(state: PasscodeState): string {
+  if (state.intent === "create" && isEditable(state.status)) {
+    return state.code.length === 0
+      ? `${CREATE_TITLE}. ${CREATE_SUBTEXT}`
+      : `${state.code.length} of ${CODE_LENGTH} digits chosen`;
+  }
   switch (state.status) {
     case "submitting":
       return "Verifying passcode";
@@ -319,6 +450,8 @@ export function announcement(state: PasscodeState): string {
       return "Incorrect passcode. Cleared, try again.";
     case "unavailable":
       return "Could not verify the passcode. Your code is still entered. Press Enter to try again.";
+    case "created":
+      return "New passcode saved. Enter it to continue.";
     case "complete":
       return `All ${CODE_LENGTH} digits entered`;
     case "filling":

@@ -77,7 +77,9 @@ export function StateSidebar({
 
   const panel = (
     <motion.aside
-      initial={overlay ? { x: reduced ? 0 : -268, opacity: reduced ? 0 : 1 } : false}
+      initial={
+        overlay ? { x: reduced ? 0 : "-100%", opacity: reduced ? 0 : 1 } : false
+      }
       animate={{ x: 0, opacity: 1 }}
       transition={
         reduced
@@ -85,7 +87,8 @@ export function StateSidebar({
           : { type: "spring", stiffness: 520, damping: 44 }
       }
       style={{
-        width: 268,
+        // Never let the panel swallow a 320px viewport at 200% zoom.
+        width: "min(268px, 86vw)",
         flexShrink: 0,
         height: "100%",
         overflowY: "auto",
@@ -174,7 +177,7 @@ export function StateSidebar({
                       width: "100%",
                       textAlign: "left",
                       display: "flex",
-                      alignItems: "center",
+                      alignItems: "flex-start",
                       gap: 8,
                       padding: "7px 10px",
                       borderRadius: 8,
@@ -212,6 +215,8 @@ export function StateSidebar({
                         position: "relative",
                         width: 5,
                         height: 5,
+                        // Sits on the label's first line, not the block's middle.
+                        marginTop: 6,
                         borderRadius: 999,
                         flexShrink: 0,
                         background: isActive
@@ -220,14 +225,34 @@ export function StateSidebar({
                         transition: "background 160ms",
                       }}
                     />
-                    <span style={{ position: "relative", flex: 1 }}>
+                    <span
+                      style={{
+                        position: "relative",
+                        flex: 1,
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 1,
+                        minWidth: 0,
+                      }}
+                    >
                       {scenario.label}
+                      <span
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 400,
+                          lineHeight: 1.35,
+                          color: "var(--muted)",
+                        }}
+                      >
+                        {scenario.subtitle}
+                      </span>
                     </span>
                     {scenario.inFigma && (
                       <span
                         title="This frame exists in the Figma file"
                         style={{
                           position: "relative",
+                          marginTop: 3,
                           fontSize: 9,
                           fontWeight: 600,
                           letterSpacing: "0.06em",
@@ -242,6 +267,7 @@ export function StateSidebar({
                         aria-hidden="true"
                         style={{
                           position: "relative",
+                          marginTop: 2,
                           fontSize: 10,
                           color: "var(--highlight)",
                         }}

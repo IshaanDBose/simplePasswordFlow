@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useReducer, useState } from "react";
 import {
   CODE_LENGTH,
+  CORRECT_CODE,
+  TOAST,
   verifyOutcome,
   TIMING,
   initialState,
@@ -10,7 +12,16 @@ import {
   reducer,
   type PasscodeEvent,
 } from "@/lib/passcode-machine";
+import {
+  clearDraft,
+  readDraft,
+  readRegisteredCode,
+  takeLinkedCode,
+  writeDraft,
+  writeRegisteredCode,
+} from "@/lib/session";
 import type { Scenario } from "@/lib/scenarios";
+
 
 /**
  * Wires the passcode machine to real time: the automatic transitions, the
@@ -21,6 +32,63 @@ export function usePasscode() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const hydrated = useRef(false);
+
+  /* On load, pick up whatever the last visit or the link left behind.
+     Deliberately an effect rather than a lazy reducer initialiser: this page
+     is prerendered, and reading storage during render would give the server
+     and the client different HTML. Runs once. */
+  useEffect(() => {
+    if (hydrated.current) return;
+    hydrated.current = true;
+
+    const registeredCode = readRegisteredCode();
+    const linked = takeLinkedCode();
+
+    if (linked) {
+      // A magic link fills the field but does not press the button: holding
+      // at `complete` suppresses auto-submit so the code can be read, and the
+      // toast explains where it came from.
+      clearDraft();
+      dispatch({
+        type: "HYDRATE",
+        code: linked,
+        registeredCode,
+        holdAt: "complete",
+        toast: TOAST.linked,
+      });
+      return;
+    }
+
+    const draft = readDraft();
+    dispatch({
+      type: "HYDRATE",
+      code: draft,
+      registeredCode,
+      toast: draft ? TOAST.restored : undefined,
+    });
+  }, []);
+
+  /* Keep the partial entry across a refresh. Only ever a partial one — see
+     writeDraft — and never the registered code alongside it. */
+  useEffect(() => {
+    if (!hydrated.current) return;
+    if (state.intent === "create") return; // a passcode being chosen is not a draft
+    writeDraft(state.code);
+  }, [state.code, state.intent]);
+
+  useEffect(() => {
+    if (state.registeredCode !== CORRECT_CODE) {
+      writeRegisteredCode(state.registeredCode);
+    }
+  }, [state.registeredCode]);
+
+  /* Toasts explain, they do not demand — so they take themselves away. */
+  useEffect(() => {
+    if (!state.toast) return;
+    const timer = setTimeout(() => dispatch({ type: "DISMISS_TOAST" }), 5200);
+    return () => clearTimeout(timer);
+  }, [state.toast]);
 
   const cancelScenario = useCallback(() => {
     timers.current.forEach(clearTimeout);
@@ -39,13 +107,20 @@ export function usePasscode() {
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     if (state.status === "complete") {
+      // The same four digits mean different things depending on what they are
+      // for: commit them, or send them off to be checked.
       timer = setTimeout(
-        () => dispatch({ type: "SUBMIT" }),
+        () =>
+          dispatch({
+            type: state.intent === "create" ? "REGISTER" : "SUBMIT",
+          }),
         TIMING.autoSubmit,
       );
+    } else if (state.status === "created") {
+      timer = setTimeout(() => dispatch({ type: "CLEAR" }), TIMING.createdHold);
     } else if (state.status === "submitting") {
       timer = setTimeout(() => {
-        const outcome = verifyOutcome(state.code);
+        const outcome = verifyOutcome(state.code, state.registeredCode);
         dispatch({
           type:
             outcome === "success"
@@ -55,7 +130,7 @@ export function usePasscode() {
                 : "FAIL",
         });
       }, TIMING.verify);
-    } else if (state.status === "error") {
+    } else if (state.status === "error" && state.intent === "verify") {
       timer = setTimeout(() => dispatch({ type: "CLEAR" }), TIMING.errorHold);
     }
     /* `unavailable` deliberately has no timer. A rejection clears itself so
@@ -66,7 +141,14 @@ export function usePasscode() {
     return () => {
       if (timer) clearTimeout(timer);
     };
-  }, [state.status, state.holdAt, state.code, playingId]);
+  }, [
+    state.status,
+    state.holdAt,
+    state.code,
+    state.intent,
+    state.registeredCode,
+    playingId,
+  ]);
 
   /** Any real interaction takes the flow off scenario rails. */
   const interact = useCallback(
@@ -216,6 +298,17 @@ export function usePasscode() {
       interact({ type: "SUBMIT" });
       inputRef.current?.focus();
     },
+    startCreate: () => {
+      clearDraft();
+      interact({ type: "START_CREATE" });
+      inputRef.current?.focus();
+    },
+    cancelCreate: () => {
+      interact({ type: "CANCEL_CREATE" });
+      inputRef.current?.focus();
+    },
+    toast: state.toast,
+    dismissToast: () => dispatch({ type: "DISMISS_TOAST" }),
     editable: isEditable(state.status),
     codeLength: CODE_LENGTH,
   };
