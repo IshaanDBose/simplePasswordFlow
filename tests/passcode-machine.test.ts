@@ -5,9 +5,12 @@ import {
   CORRECT_CODE,
   HINT_AFTER_ATTEMPTS,
   initialState,
+  isEditable,
   reducer,
   ringIndex,
   sanitize,
+  UNAVAILABLE_CODE,
+  verifyOutcome,
   type PasscodeEvent,
   type PasscodeState,
 } from "../src/lib/passcode-machine";
@@ -147,6 +150,66 @@ test("paste replaces the buffer and keeps only digits", () => {
   assert.equal(state.status, "complete");
   assert.equal(state.lastInputKind, "paste", "so the cells fill in sequence");
   assert.equal(state.rejections, 0, "stripping junk is silent");
+});
+
+test("a failed request is not a wrong passcode", () => {
+  const submitted = run([...type(UNAVAILABLE_CODE), { type: "SUBMIT" }]);
+  assert.equal(verifyOutcome(UNAVAILABLE_CODE), "unavailable");
+
+  const down = reducer(submitted, { type: "REQUEST_FAILED" });
+  assert.equal(down.status, "unavailable");
+  assert.notEqual(down.status, "error", "must not read as a rejection");
+
+  // Nothing about this was the user's doing, so nothing counts against them.
+  assert.equal(down.attempts, 0, "no attempt is spent on an outage");
+  assert.equal(down.failures, 0, "and it must not trigger the shake");
+
+  // Their input survives, so retrying costs no retyping.
+  assert.equal(down.code, UNAVAILABLE_CODE);
+});
+
+test("a failed request never trips the wrong-passcode hint", () => {
+  let state = initialState;
+  for (let i = 0; i < HINT_AFTER_ATTEMPTS + 2; i++) {
+    state = run(
+      [...type(UNAVAILABLE_CODE), { type: "SUBMIT" }, { type: "REQUEST_FAILED" }],
+      { ...state, status: "idle", code: "" },
+    );
+  }
+  assert.equal(state.attempts, 0);
+  assert.equal(state.caption, null, "never offers the code after an outage");
+});
+
+test("retrying after a failure resubmits the code already entered", () => {
+  const down = run([
+    ...type(UNAVAILABLE_CODE),
+    { type: "SUBMIT" },
+    { type: "REQUEST_FAILED" },
+  ]);
+  const again = reducer(down, { type: "SUBMIT" });
+  assert.equal(again.status, "submitting");
+  assert.equal(again.code, UNAVAILABLE_CODE, "resends, does not clear");
+});
+
+test("the field stays editable after a failed request", () => {
+  const down = run([
+    ...type(UNAVAILABLE_CODE),
+    { type: "SUBMIT" },
+    { type: "REQUEST_FAILED" },
+  ]);
+  assert.ok(isEditable(down.status));
+  // Backspace corrects a digit rather than wiping the lot.
+  const edited = reducer(down, { type: "KEY_BACKSPACE" });
+  assert.equal(edited.code, UNAVAILABLE_CODE.slice(0, -1));
+  assert.equal(edited.status, "filling");
+});
+
+test("a wrong code still reads as rejected, not unavailable", () => {
+  assert.equal(verifyOutcome("9999"), "rejected");
+  assert.equal(verifyOutcome(CORRECT_CODE), "success");
+  const rejected = run([...type("9999"), { type: "SUBMIT" }, { type: "FAIL" }]);
+  assert.equal(rejected.status, "error");
+  assert.equal(rejected.attempts, 1);
 });
 
 test("starting over winds the feedback counters back down", () => {

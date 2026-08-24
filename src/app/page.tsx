@@ -8,8 +8,16 @@ import { MOBILE_QUERY, useMediaQuery } from "@/hooks/useMediaQuery";
 import { SCENARIOS, type Scenario } from "@/lib/scenarios";
 
 export default function Home() {
-  const { state, inputRef, handlers, play, playingId, focusField, reset } =
-    usePasscode();
+  const {
+    state,
+    inputRef,
+    handlers,
+    play,
+    playingId,
+    focusField,
+    reset,
+    retry,
+  } = usePasscode();
   const isMobile = useMediaQuery(MOBILE_QUERY);
   const [collapsed, setCollapsed] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -96,6 +104,7 @@ export default function Home() {
           inputRef={inputRef}
           handlers={handlers}
           onReset={reset}
+          onRetry={retry}
         />
       </main>
     </div>

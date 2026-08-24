@@ -135,3 +135,31 @@ export function CrossSquare({ size = 32 }: { size?: number }) {
     </svg>
   );
 }
+
+/**
+ * Shown when the request failed rather than the code. Same square frame as the
+ * other two, in a third colour, so "we could not check" is legible at a glance
+ * as a different kind of answer from "that was wrong".
+ */
+export function WarningSquare({ size = 32 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 32 32"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+      style={{ display: "block" }}
+    >
+      <path d={SQUARE_FRAME} fill="var(--warning)" />
+      <path
+        d="M16 10.5V17.5"
+        stroke="var(--warning)"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <circle cx="16" cy="21.5" r="1.25" fill="var(--warning)" />
+    </svg>
+  );
+}

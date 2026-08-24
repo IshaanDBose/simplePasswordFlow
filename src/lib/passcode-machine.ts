@@ -16,6 +16,27 @@ export const CODE_LENGTH = 4;
 export const CORRECT_CODE = "1234";
 export const HINT_AFTER_ATTEMPTS = 3;
 
+/**
+ * Stands in for the request falling over — a 500, a dropped connection, a
+ * timeout. There is no real backend here, so this code is the way to reach
+ * that path by hand.
+ */
+export const UNAVAILABLE_CODE = "0000";
+
+/** What came back from the (simulated) verification request. */
+export type Outcome = "success" | "rejected" | "unavailable";
+
+/**
+ * Rejected and unavailable are different answers and must not be collapsed.
+ * "We checked, and it was wrong" is about the user; "we could not check" is
+ * about us, and telling someone their passcode is incorrect when the server
+ * fell over sends them off re-reading a code that was right all along.
+ */
+export function verifyOutcome(code: string): Outcome {
+  if (code === UNAVAILABLE_CODE) return "unavailable";
+  return code === CORRECT_CODE ? "success" : "rejected";
+}
+
 /** Timings, in ms. Collected here so the whole feel can be tuned in one place. */
 export const TIMING = {
   /** Beat between the last digit landing and submission — long enough to see
@@ -33,7 +54,10 @@ export type Status =
   | "complete"
   | "submitting"
   | "success"
-  | "error";
+  /** The code was checked and rejected. */
+  | "error"
+  /** The code could not be checked at all. */
+  | "unavailable";
 
 export const STATUS_ORDER: Status[] = [
   "idle",
@@ -42,6 +66,7 @@ export const STATUS_ORDER: Status[] = [
   "submitting",
   "success",
   "error",
+  "unavailable",
 ];
 
 export type InputKind = "key" | "paste";
@@ -89,6 +114,8 @@ export type PasscodeEvent =
   | { type: "SUBMIT" }
   | { type: "RESOLVE" }
   | { type: "FAIL" }
+  /** The request itself failed — no verdict on the code. */
+  | { type: "REQUEST_FAILED" }
   /** Soft reset: empties the code, keeps the attempt history. */
   | { type: "CLEAR" }
   /** Hard reset: back to a pristine machine. */
@@ -96,7 +123,18 @@ export type PasscodeEvent =
   | { type: "HOLD_AT"; status: Status | null }
   | { type: "SEED_ATTEMPTS"; attempts: number };
 
-const EDITABLE: readonly Status[] = ["idle", "filling", "complete"];
+/**
+ * `unavailable` is editable: the code is still on screen and, as far as anyone
+ * knows, still right. Leaving it editable means Enter resubmits it as-is and
+ * backspace corrects a digit, rather than forcing a retype for someone else's
+ * outage.
+ */
+const EDITABLE: readonly Status[] = [
+  "idle",
+  "filling",
+  "complete",
+  "unavailable",
+];
 
 export const isEditable = (status: Status) => EDITABLE.includes(status);
 
@@ -210,6 +248,14 @@ export function reducer(
       if (state.status !== "submitting") return state;
       return { ...state, status: "success", caption: null };
 
+    case "REQUEST_FAILED":
+      if (state.status !== "submitting") return state;
+      /* No attempt is counted and no failure is recorded: the code was never
+         judged, so it must not count against a lockout or trip the hint, and
+         it must not shake as though the user got something wrong. The code
+         stays put so retrying costs nothing. */
+      return { ...state, status: "unavailable", caption: null };
+
     case "FAIL": {
       if (state.status !== "submitting") return state;
       const attempts = state.attempts + 1;
@@ -259,6 +305,7 @@ export const STATUS_LABEL: Record<Status, string> = {
   submitting: "submitting",
   success: "success",
   error: "error",
+  unavailable: "unavailable",
 };
 
 /** Announcement copy for the aria-live region. */
@@ -270,6 +317,8 @@ export function announcement(state: PasscodeState): string {
       return "Authenticated";
     case "error":
       return "Incorrect passcode. Cleared, try again.";
+    case "unavailable":
+      return "Could not verify the passcode. Your code is still entered. Press Enter to try again.";
     case "complete":
       return `All ${CODE_LENGTH} digits entered`;
     case "filling":

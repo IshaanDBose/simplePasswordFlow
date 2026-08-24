@@ -1,4 +1,4 @@
-import type { PasscodeEvent, Status } from "./passcode-machine";
+import { UNAVAILABLE_CODE, type PasscodeEvent, type Status } from "./passcode-machine";
 
 /**
  * Scripted walkthroughs for the state panel.
@@ -105,6 +105,20 @@ export const SCENARIOS: Scenario[] = [
     settlesOn: "error",
     holdAt: "error",
   },
+  {
+    id: "unavailable",
+    group: "States",
+    label: "Couldn't verify",
+    blurb:
+      "The request failed, not the code. Nothing is cleared and no attempt is counted.",
+    focus: "on",
+    steps: [
+      { at: 0, event: { type: "RESET" } },
+      ...digits(UNAVAILABLE_CODE, 160, 110),
+    ],
+    settlesOn: "unavailable",
+    holdAt: "unavailable",
+  },
 
   {
     id: "paste",
@@ -177,6 +191,21 @@ export const SCENARIOS: Scenario[] = [
     ],
     settlesOn: "filling",
     holdAt: "filling",
+  },
+  {
+    id: "retry-after-failure",
+    group: "Edge cases",
+    label: "Retry after a failure",
+    blurb: "Enter resends what is already there — an outage costs no retyping.",
+    focus: "on",
+    steps: [
+      { at: 0, event: { type: "RESET" } },
+      ...digits(UNAVAILABLE_CODE, 160, 110),
+      // Waits out the request, then resubmits the code still sitting there.
+      { at: 2400, event: { type: "SUBMIT" } },
+    ],
+    settlesOn: "unavailable",
+    holdAt: "unavailable",
   },
   {
     id: "third-attempt",

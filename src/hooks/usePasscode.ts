@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useReducer, useState } from "react";
 import {
   CODE_LENGTH,
-  CORRECT_CODE,
+  verifyOutcome,
   TIMING,
   initialState,
   isEditable,
@@ -44,16 +44,24 @@ export function usePasscode() {
         TIMING.autoSubmit,
       );
     } else if (state.status === "submitting") {
-      timer = setTimeout(
-        () =>
-          dispatch({
-            type: state.code === CORRECT_CODE ? "RESOLVE" : "FAIL",
-          }),
-        TIMING.verify,
-      );
+      timer = setTimeout(() => {
+        const outcome = verifyOutcome(state.code);
+        dispatch({
+          type:
+            outcome === "success"
+              ? "RESOLVE"
+              : outcome === "unavailable"
+                ? "REQUEST_FAILED"
+                : "FAIL",
+        });
+      }, TIMING.verify);
     } else if (state.status === "error") {
       timer = setTimeout(() => dispatch({ type: "CLEAR" }), TIMING.errorHold);
     }
+    /* `unavailable` deliberately has no timer. A rejection clears itself so
+       the user can try a different code; a failed request has nothing to
+       clear, and wiping their input while they decide whether to retry would
+       punish them for an outage. It waits for them. */
 
     return () => {
       if (timer) clearTimeout(timer);
@@ -200,6 +208,12 @@ export function usePasscode() {
        again, so put them back in it. */
     reset: () => {
       interact({ type: "RESET" });
+      inputRef.current?.focus();
+    },
+    /* Retry resubmits whatever is already in the field — the point of keeping
+       it is that a retry costs nothing. */
+    retry: () => {
+      interact({ type: "SUBMIT" });
       inputRef.current?.focus();
     },
     editable: isEditable(state.status),

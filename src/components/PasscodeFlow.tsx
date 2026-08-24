@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, useAnimate, useReducedMotion } from "motion/react";
-import { CheckSquare, CrossSquare, Spinner } from "./Icons";
+import { CheckSquare, CrossSquare, Spinner, WarningSquare } from "./Icons";
 import {
   CELL_W,
   CELL_H,
@@ -99,6 +99,9 @@ function ringCorners(index: number) {
 function paletteFor(status: PasscodeState["status"]): Palette {
   if (status === "submitting") return "disabled";
   if (status === "error") return "error";
+  // `unavailable` keeps the default palette on purpose: nothing is wrong with
+  // what was typed, so marking the cells would be a lie. The status row
+  // carries the message.
   return "default";
 }
 
@@ -114,9 +117,16 @@ interface Props {
     onSelect: (e: React.SyntheticEvent<HTMLInputElement>) => void;
   };
   onReset: () => void;
+  onRetry: () => void;
 }
 
-export function PasscodeFlow({ state, inputRef, handlers, onReset }: Props) {
+export function PasscodeFlow({
+  state,
+  inputRef,
+  handlers,
+  onReset,
+  onRetry,
+}: Props) {
   const reduced = useReducedMotion() ?? false;
   const [scope, animate] = useAnimate<HTMLDivElement>();
   const failures = useRef(state.failures);
@@ -125,7 +135,10 @@ export function PasscodeFlow({ state, inputRef, handlers, onReset }: Props) {
   const { status, code, focused, caption } = state;
   const showCells = status !== "success";
   const rowVisible =
-    status === "submitting" || status === "success" || status === "error";
+    status === "submitting" ||
+    status === "success" ||
+    status === "error" ||
+    status === "unavailable";
   const rowY = status === "success" ? 0 : ROW_OFFSET;
 
   /* A wrong code shakes the whole group; a refused key gives it a much
@@ -245,6 +258,7 @@ export function PasscodeFlow({ state, inputRef, handlers, onReset }: Props) {
               {status === "submitting" && <Spinner />}
               {status === "success" && <CheckSquare draw={!reduced} />}
               {status === "error" && <CrossSquare />}
+              {status === "unavailable" && <WarningSquare />}
             </motion.div>
           </AnimatePresence>
         </div>
@@ -269,6 +283,9 @@ export function PasscodeFlow({ state, inputRef, handlers, onReset }: Props) {
               {status === "submitting" && "Verifying..."}
               {status === "success" && "Authenticated"}
               {status === "error" && "Incorrect passcode"}
+              {/* Says what we know — that we don't know — instead of
+                  blaming a passcode nobody has actually checked. */}
+              {status === "unavailable" && "Couldn't verify"}
             </motion.p>
           </AnimatePresence>
         </div>
@@ -425,12 +442,18 @@ export function PasscodeFlow({ state, inputRef, handlers, onReset }: Props) {
         </p>
       </motion.div>
 
-      {/* A way out of the terminal state, offered a beat after it lands. */}
+      {/*
+        A way out of whichever state the flow has come to rest in. After
+        success it is an afterthought, offered a beat later so it does not
+        crowd the moment. After a failed request it is the whole point, so it
+        arrives immediately.
+      */}
       <AnimatePresence>
-        {status === "success" && (
+        {(status === "success" || status === "unavailable") && (
           <motion.button
+            key={status}
             type="button"
-            onClick={onReset}
+            onClick={status === "success" ? onReset : onRetry}
             className="ring-focus"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -438,7 +461,11 @@ export function PasscodeFlow({ state, inputRef, handlers, onReset }: Props) {
             // the way out too and the button hangs around for a second over
             // the cells coming back.
             exit={{ opacity: 0, transition: { duration: 0.12, delay: 0 } }}
-            transition={{ delay: reduced ? 0.2 : 1.1, duration: 0.3 }}
+            transition={{
+              delay:
+                status === "unavailable" ? 0.12 : reduced ? 0.2 : 1.1,
+              duration: 0.3,
+            }}
             style={{
               position: "absolute",
               left: "50%",
@@ -451,11 +478,16 @@ export function PasscodeFlow({ state, inputRef, handlers, onReset }: Props) {
               background: "var(--background)",
               fontSize: 13,
               fontWeight: 500,
-              color: "var(--text-color-disabled)",
+              // Retry is the action being asked for, so it carries full ink;
+              // starting over is optional and stays quiet.
+              color:
+                status === "unavailable"
+                  ? "var(--text-color-1)"
+                  : "var(--text-color-disabled)",
               cursor: "pointer",
             }}
           >
-            Start over
+            {status === "success" ? "Start over" : "Try again"}
           </motion.button>
         )}
       </AnimatePresence>
